@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>석식 체크 시스템 - 회원가입</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+      // Axios 기본 설정
+      axios.defaults.baseURL = "http://localhost:3000";
+      axios.defaults.headers.common["Content-Type"] = "application/json";
+
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Pretendard", "sans-serif"],
+            },
+            colors: {
+              primary: {
+                50: "#f0f9ff",
+                100: "#e0f2fe",
+                200: "#bae6fd",
+                300: "#7dd3fc",
+                400: "#38bdf8",
+                500: "#0ea5e9",
+                600: "#0284c7",
+                700: "#0369a1",
+                800: "#075985",
+                900: "#0c4a6e",
+              },
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body
+    class="bg-gray-50 min-h-screen font-sans flex items-center justify-center p-4"
+  >
+    <div class="w-full max-w-md">
+      <!-- 회원가입 카드 -->
+      <div class="bg-white rounded-2xl shadow-sm p-8 space-y-6">
+        <div class="text-center space-y-2">
+          <h1 class="text-2xl font-bold text-gray-900">회원가입</h1>
+        </div>
+
+        <form id="signupForm" class="space-y-4">
+          <!-- 학번 입력 -->
+          <div class="space-y-2">
+            <label
+              for="studentId"
+              class="block text-sm font-medium text-gray-700"
+            >
+              학번
+            </label>
+            <input
+              type="text"
+              id="studentId"
+              name="studentId"
+              required
+              pattern="\d{4}"
+              maxlength="4"
+              placeholder="학번 4자리"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+            />
+            <div id="studentIdError" class="hidden text-sm text-red-600"></div>
+          </div>
+
+          <!-- 이름 입력 -->
+          <div class="space-y-2">
+            <label for="name" class="block text-sm font-medium text-gray-700">
+              이름
+            </label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              required
+              pattern="[가-힣]{2,4}"
+              placeholder="이름 (2-4자 한글)"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+            />
+            <div id="nameError" class="hidden text-sm text-red-600"></div>
+          </div>
+
+          <!-- 학년/반/번호 입력 -->
+          <div class="grid grid-cols-3 gap-4">
+            <div class="space-y-2">
+              <label
+                for="grade"
+                class="block text-sm font-medium text-gray-700"
+              >
+                학년
+              </label>
+              <select
+                id="grade"
+                name="grade"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              >
+                <option value="">선택</option>
+                <option value="1">1학년</option>
+                <option value="2">2학년</option>
+                <option value="3">3학년</option>
+              </select>
+              <div id="gradeError" class="hidden text-sm text-red-600"></div>
+            </div>
+
+            <div class="space-y-2">
+              <label
+                for="class"
+                class="block text-sm font-medium text-gray-700"
+              >
+                반
+              </label>
+              <select
+                id="class"
+                name="class"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              >
+                <option value="">선택</option>
+                <option value="1">1반</option>
+                <option value="2">2반</option>
+                <option value="3">3반</option>
+                <option value="4">4반</option>
+                <option value="5">5반</option>
+                <option value="6">6반</option>
+              </select>
+              <div id="classError" class="hidden text-sm text-red-600"></div>
+            </div>
+
+            <div class="space-y-2">
+              <label
+                for="number"
+                class="block text-sm font-medium text-gray-700"
+              >
+                번호
+              </label>
+              <input
+                type="number"
+                id="number"
+                name="number"
+                required
+                min="1"
+                max="100"
+                placeholder="번호"
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+              <div id="numberError" class="hidden text-sm text-red-600"></div>
+            </div>
+          </div>
+
+          <!-- 비밀번호 입력 -->
+          <div class="space-y-2">
+            <label
+              for="password"
+              class="block text-sm font-medium text-gray-700"
+            >
+              비밀번호
+            </label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              minlength="8"
+              placeholder="비밀번호 (8자 이상)"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+            />
+            <div id="passwordError" class="hidden text-sm text-red-600"></div>
+            <p class="text-xs text-gray-500">
+              8자 이상의 비밀번호를 입력해주세요.
+            </p>
+          </div>
+
+          <!-- 비밀번호 확인 -->
+          <div class="space-y-2">
+            <label
+              for="confirmPassword"
+              class="block text-sm font-medium text-gray-700"
+            >
+              비밀번호 확인
+            </label>
+            <input
+              type="password"
+              id="confirmPassword"
+              name="confirmPassword"
+              required
+              minlength="8"
+              placeholder="비밀번호 확인"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+            />
+            <div
+              id="confirmPasswordError"
+              class="hidden text-sm text-red-600"
+            ></div>
+          </div>
+
+          <!-- 회원가입 버튼 -->
+          <button
+            type="submit"
+            class="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors duration-200"
+          >
+            회원가입
+          </button>
+
+          <div
+            id="signupError"
+            class="hidden text-sm text-center text-red-600"
+          ></div>
+        </form>
+
+        <!-- 로그인 링크 -->
+        <div class="text-center">
+          <a
+            href="index.html"
+            class="text-sm text-primary-600 hover:text-primary-700 hover:underline"
+          >
+            로그인으로 돌아가기
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document
+        .getElementById("signupForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const studentId = document.getElementById("studentId").value;
+          const name = document.getElementById("name").value;
+          const grade = document.getElementById("grade").value;
+          const classNumber = document.getElementById("class").value;
+          const number = document.getElementById("number").value;
+          const password = document.getElementById("password").value;
+          const confirmPassword =
+            document.getElementById("confirmPassword").value;
+
+          // 비밀번호 확인
+          if (password !== confirmPassword) {
+            const errorElement = document.getElementById(
+              "confirmPasswordError"
+            );
+            errorElement.textContent = "비밀번호가 일치하지 않습니다.";
+            errorElement.classList.remove("hidden");
+            return;
+          }
+
+          try {
+            const response = await axios.post("/api/signup", {
+              studentId,
+              name,
+              password,
+              grade: parseInt(grade),
+              class: parseInt(classNumber),
+              number: parseInt(number),
+            });
+
+            if (response.data.message) {
+              alert(response.data.message);
+              window.location.href = "index.html";
+            }
+          } catch (error) {
+            console.error("Signup error:", error);
+            const errorElement = document.getElementById("signupError");
+            errorElement.textContent =
+              error.response?.data?.message ||
+              "회원가입 중 오류가 발생했습니다.";
+            errorElement.classList.remove("hidden");
+          }
+        });
+
+      // 입력값 유효성 검사
+      document.getElementById("studentId").addEventListener("input", (e) => {
+        const studentId = e.target.value;
+        const errorElement = document.getElementById("studentIdError");
+
+        if (!/^\d{4}$/.test(studentId) && studentId.length === 4) {
+          errorElement.textContent = "학번은 4자리 숫자여야 합니다.";
+          errorElement.classList.remove("hidden");
+        } else {
+          errorElement.classList.add("hidden");
+        }
+      });
+
+      document.getElementById("name").addEventListener("input", (e) => {
+        const name = e.target.value;
+        const errorElement = document.getElementById("nameError");
+
+        if (!/^[가-힣]{2,4}$/.test(name) && name.length >= 2) {
+          errorElement.textContent = "이름은 2-4자의 한글이어야 합니다.";
+          errorElement.classList.remove("hidden");
+        } else {
+          errorElement.classList.add("hidden");
+        }
+      });
+
+      document.getElementById("password").addEventListener("input", (e) => {
+        const password = e.target.value;
+        const errorElement = document.getElementById("passwordError");
+
+        if (password.length > 0 && password.length < 8) {
+          errorElement.textContent = "비밀번호는 8자 이상이어야 합니다.";
+          errorElement.classList.remove("hidden");
+        } else {
+          errorElement.classList.add("hidden");
+        }
+      });
+
+      document
+        .getElementById("confirmPassword")
+        .addEventListener("input", (e) => {
+          const confirmPassword = e.target.value;
+          const password = document.getElementById("password").value;
+          const errorElement = document.getElementById("confirmPasswordError");
+
+          if (confirmPassword !== password) {
+            errorElement.textContent = "비밀번호가 일치하지 않습니다.";
+            errorElement.classList.remove("hidden");
+          } else {
+            errorElement.classList.add("hidden");
+          }
+        });
+
+      document.getElementById("number").addEventListener("input", (e) => {
+        const number = e.target.value;
+        const errorElement = document.getElementById("numberError");
+
+        if (number < 1 || number > 100) {
+          errorElement.textContent = "번호는 1-100 사이의 숫자여야 합니다.";
+          errorElement.classList.remove("hidden");
+        } else {
+          errorElement.classList.add("hidden");
+        }
+      });
+    </script>
+  </body>
+</html>

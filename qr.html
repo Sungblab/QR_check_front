@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>석식 체크 시스템 - QR 코드</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link
+      rel="stylesheet"
+      as="style"
+      crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Pretendard", "sans-serif"],
+            },
+            colors: {
+              primary: {
+                50: "#f0f9ff",
+                100: "#e0f2fe",
+                200: "#bae6fd",
+                300: "#7dd3fc",
+                400: "#38bdf8",
+                500: "#0ea5e9",
+                600: "#0284c7",
+                700: "#0369a1",
+                800: "#075985",
+                900: "#0c4a6e",
+              },
+            },
+          },
+        },
+      };
+
+      // Axios 기본 설정
+      axios.defaults.baseURL = "http://localhost:3000";
+      axios.defaults.headers.common["Content-Type"] = "application/json";
+
+      // 요청 인터셉터 설정
+      axios.interceptors.request.use(
+        (config) => {
+          const token = localStorage.getItem("accessToken");
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+          return config;
+        },
+        (error) => {
+          return Promise.reject(error);
+        }
+      );
+
+      // 응답 인터셉터 설정
+      axios.interceptors.response.use(
+        (response) => response,
+        async (error) => {
+          const originalRequest = error.config;
+
+          if (
+            error.response?.status === 401 &&
+            error.response?.data?.needRefresh &&
+            !originalRequest._retry
+          ) {
+            originalRequest._retry = true;
+
+            try {
+              const refreshToken = localStorage.getItem("refreshToken");
+              const response = await axios.post("/api/refresh-token", {
+                refreshToken,
+              });
+
+              if (response.data.success) {
+                localStorage.setItem("accessToken", response.data.accessToken);
+                localStorage.setItem(
+                  "refreshToken",
+                  response.data.refreshToken
+                );
+
+                originalRequest.headers.Authorization = `Bearer ${response.data.accessToken}`;
+                return axios(originalRequest);
+              }
+            } catch (refreshError) {
+              if (refreshError.response?.data?.needRelogin) {
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
+                window.location.href = "/index.html";
+              }
+              return Promise.reject(refreshError);
+            }
+          }
+
+          return Promise.reject(error);
+        }
+      );
+    </script>
+  </head>
+  <body class="bg-gray-50 min-h-screen font-sans">
+    <div class="max-w-lg mx-auto p-4 space-y-4">
+      <!-- 헤더 -->
+      <div class="bg-white rounded-2xl shadow-sm p-6">
+        <h1 class="text-2xl font-bold text-center text-gray-900">
+          석식 체크 QR 코드
+        </h1>
+        <div id="userInfo" class="mt-2 text-sm text-center text-gray-600">
+          로딩 중...
+        </div>
+      </div>
+
+      <!-- QR 코드 섹션 -->
+      <div class="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+        <div id="qrCode" class="flex justify-center">
+          <div class="bg-white p-4 rounded-lg shadow-sm"></div>
+        </div>
+
+        <div class="space-y-4">
+          <div id="timer" class="text-center text-sm font-medium text-gray-600">
+            30초 후 만료
+          </div>
+
+          <button
+            id="refreshButton"
+            onclick="generateQR()"
+            class="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            QR 코드 새로 고침
+          </button>
+
+          <div
+            id="qrError"
+            class="hidden text-sm text-center text-red-600"
+          ></div>
+        </div>
+      </div>
+
+      <!-- 버튼 그룹 -->
+      <div class="space-y-4">
+        <button
+          onclick="openPasswordModal()"
+          class="w-full py-3 px-4 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors duration-200"
+        >
+          비밀번호 변경
+        </button>
+
+        <button
+          onclick="logout()"
+          class="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors duration-200"
+        >
+          로그아웃
+        </button>
+      </div>
+
+      <!-- 비밀번호 변경 모달 -->
+      <div
+        id="passwordModal"
+        class="fixed inset-0 bg-black bg-opacity-50 hidden z-50"
+      >
+        <div class="bg-white rounded-2xl max-w-md mx-auto mt-20 p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-gray-900">비밀번호 변경</h2>
+            <button
+              onclick="closePasswordModal()"
+              class="text-gray-500 hover:text-gray-700"
+            >
+              ✕
+            </button>
+          </div>
+          <form id="passwordForm" class="space-y-4">
+            <div class="space-y-2">
+              <label
+                for="currentPassword"
+                class="block text-sm font-medium text-gray-700"
+                >현재 비밀번호</label
+              >
+              <input
+                type="password"
+                id="currentPassword"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+            </div>
+            <div class="space-y-2">
+              <label
+                for="newPassword"
+                class="block text-sm font-medium text-gray-700"
+                >새 비밀번호</label
+              >
+              <input
+                type="password"
+                id="newPassword"
+                required
+                minlength="8"
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+              <p class="text-xs text-gray-500">
+                8자 이상의 비밀번호를 입력해주세요.
+              </p>
+            </div>
+            <div class="space-y-2">
+              <label
+                for="confirmNewPassword"
+                class="block text-sm font-medium text-gray-700"
+                >새 비밀번호 확인</label
+              >
+              <input
+                type="password"
+                id="confirmNewPassword"
+                required
+                minlength="8"
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+            </div>
+            <div id="passwordError" class="hidden text-sm text-red-600"></div>
+            <button
+              type="submit"
+              class="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors duration-200"
+            >
+              비밀번호 변경
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let countdown;
+      let studentId;
+
+      // 토큰이 없으면 로그인 페이지로 리다이렉트
+      if (!localStorage.getItem("accessToken")) {
+        window.location.href = "index.html";
+      }
+
+      // 사용자 정보 로드
+      async function loadUserInfo() {
+        try {
+          const response = await axios.get("/api/student-info");
+          studentId = response.data.studentId;
+
+          document.getElementById("userInfo").innerHTML = `
+            <span class="font-medium text-gray-900">${response.data.grade}학년 ${response.data.class}반 ${response.data.number}번</span>
+            <span class="text-gray-600">${response.data.name} (${response.data.studentId})</span>
+          `;
+
+          // QR 코드 생성
+          generateQR();
+        } catch (error) {
+          console.error("Error loading user info:", error);
+          document.getElementById("userInfo").textContent =
+            "사용자 정보를 불러올 수 없습니다.";
+        }
+      }
+
+      // QR 코드 생성
+      async function generateQR() {
+        try {
+          const button = document.getElementById("refreshButton");
+          button.disabled = true;
+          button.textContent = "생성 중...";
+
+          const response = await axios.post("/api/generate-qr", { studentId });
+
+          // QR 코드 생성
+          const qrContainer = document.getElementById("qrCode");
+          qrContainer.innerHTML = ""; // 기존 내용을 비웁니다
+          const canvas = document.createElement("canvas");
+          qrContainer.appendChild(canvas);
+
+          await QRCode.toCanvas(canvas, response.data.qrData, {
+            width: 256,
+            margin: 2,
+            color: {
+              dark: "#000000",
+              light: "#ffffff",
+            },
+          });
+
+          // 타이머 시작
+          startTimer();
+
+          // 에러 메시지 숨기기
+          const errorElement = document.getElementById("qrError");
+          errorElement.classList.add("hidden");
+          button.textContent = "QR 코드 새로 고침";
+          button.disabled = false;
+        } catch (error) {
+          console.error("Error generating QR:", error);
+          const errorElement = document.getElementById("qrError");
+          errorElement.textContent = "QR 코드 생성 중 오류가 발생했습니다.";
+          errorElement.classList.remove("hidden");
+          const button = document.getElementById("refreshButton");
+          button.textContent = "다시 시도";
+          button.disabled = false;
+        }
+      }
+
+      // 타이머 시작
+      function startTimer() {
+        let timeLeft = 30;
+        const timerElement = document.getElementById("timer");
+        const button = document.getElementById("refreshButton");
+
+        // 이전 타이머가 있다면 제거
+        if (countdown) {
+          clearInterval(countdown);
+        }
+
+        countdown = setInterval(() => {
+          timeLeft--;
+          timerElement.textContent = `${timeLeft}초 후 만료`;
+
+          if (timeLeft <= 0) {
+            clearInterval(countdown);
+            timerElement.textContent = "QR 코드가 만료되었습니다.";
+            generateQR(); // 자동으로 새로운 QR 코드 생성
+          }
+        }, 1000);
+
+        // 30초 후 자동으로 새로운 QR 코드 생성
+        setTimeout(() => {
+          generateQR();
+        }, 30000);
+      }
+
+      // 로그아웃
+      async function logout() {
+        try {
+          await axios.post("/api/logout");
+        } catch (error) {
+          console.error("Logout error:", error);
+        } finally {
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("refreshToken");
+          window.location.href = "index.html";
+        }
+      }
+
+      // 비밀번호 변경 관련 함수들
+      function openPasswordModal() {
+        document.getElementById("passwordModal").classList.remove("hidden");
+      }
+
+      function closePasswordModal() {
+        document.getElementById("passwordModal").classList.add("hidden");
+        document.getElementById("passwordForm").reset();
+        document.getElementById("passwordError").classList.add("hidden");
+      }
+
+      document
+        .getElementById("passwordForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const currentPassword =
+            document.getElementById("currentPassword").value;
+          const newPassword = document.getElementById("newPassword").value;
+          const confirmNewPassword =
+            document.getElementById("confirmNewPassword").value;
+          const errorElement = document.getElementById("passwordError");
+
+          if (newPassword !== confirmNewPassword) {
+            errorElement.textContent = "새 비밀번호가 일치하지 않습니다.";
+            errorElement.classList.remove("hidden");
+            return;
+          }
+
+          try {
+            const response = await axios.post("/api/change-password", {
+              currentPassword,
+              newPassword,
+            });
+
+            alert("비밀번호가 성공적으로 변경되었습니다.");
+            closePasswordModal();
+          } catch (error) {
+            errorElement.textContent =
+              error.response?.data?.message ||
+              "비밀번호 변경 중 오류가 발생했습니다.";
+            errorElement.classList.remove("hidden");
+          }
+        });
+
+      // 페이지 로드 시 사용자 정보 로드
+      loadUserInfo();
+    </script>
+  </body>
+</html>

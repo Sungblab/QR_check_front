@@ -1,0 +1,2131 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>석식 체크 시스템 - 관리자</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment/moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment/locale/ko.js"></script>
+    <link
+      rel="stylesheet"
+      as="style"
+      crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+    />
+    <script>
+      // Axios 기본 설정
+      axios.defaults.baseURL = "http://localhost:3000";
+      axios.defaults.headers.common["Content-Type"] = "application/json";
+
+      // 요청 인터셉터 설정
+      axios.interceptors.request.use(
+        (config) => {
+          const token = localStorage.getItem("accessToken");
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+          return config;
+        },
+        (error) => {
+          return Promise.reject(error);
+        }
+      );
+
+      // 응답 인터셉터 설정
+      axios.interceptors.response.use(
+        (response) => response,
+        async (error) => {
+          const originalRequest = error.config;
+
+          if (
+            error.response?.status === 401 &&
+            error.response?.data?.needRefresh &&
+            !originalRequest._retry
+          ) {
+            originalRequest._retry = true;
+
+            try {
+              const refreshToken = localStorage.getItem("refreshToken");
+              const response = await axios.post("/api/refresh-token", {
+                refreshToken,
+              });
+
+              if (response.data.success) {
+                localStorage.setItem("accessToken", response.data.accessToken);
+                localStorage.setItem(
+                  "refreshToken",
+                  response.data.refreshToken
+                );
+
+                originalRequest.headers.Authorization = `Bearer ${response.data.accessToken}`;
+                return axios(originalRequest);
+              }
+            } catch (refreshError) {
+              if (refreshError.response?.data?.needRelogin) {
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
+                window.location.href = "/index.html";
+              }
+              return Promise.reject(refreshError);
+            }
+          }
+
+          return Promise.reject(error);
+        }
+      );
+
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Pretendard", "sans-serif"],
+            },
+            colors: {
+              primary: {
+                50: "#f0f9ff",
+                100: "#e0f2fe",
+                200: "#bae6fd",
+                300: "#7dd3fc",
+                400: "#38bdf8",
+                500: "#0ea5e9",
+                600: "#0284c7",
+                700: "#0369a1",
+                800: "#075985",
+                900: "#0c4a6e",
+              },
+            },
+          },
+        },
+      };
+
+      // 사용자 정보 및 권한 확인
+      let currentUser = null;
+
+      async function checkAuth() {
+        try {
+          const response = await axios.get("/api/student-info");
+          currentUser = response.data;
+
+          document.getElementById(
+            "userName"
+          ).textContent = `${currentUser.name} (${currentUser.studentId})`;
+
+          // 관리자 전용 기능 표시/숨김
+          const adminElements = document.querySelectorAll(".admin-only");
+          adminElements.forEach((el) => {
+            el.classList.toggle("hidden", !currentUser.isAdmin);
+          });
+
+          // 리더가 아닌 경우 접근 제한
+          if (!currentUser.isAdmin && !currentUser.isReader) {
+            window.location.href = "/";
+          }
+        } catch (error) {
+          console.error("Auth check error:", error);
+          throw error;
+        }
+      }
+
+      // 로그아웃
+      async function logout() {
+        try {
+          await axios.post("/api/logout");
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("refreshToken");
+          window.location.href = "/";
+        } catch (error) {
+          console.error("Logout error:", error);
+        }
+      }
+
+      // WebSocket 관련 코드 제거
+      let updateStatsInterval;
+
+      // 페이지 로드 시 초기화
+      window.addEventListener("load", async () => {
+        try {
+          await checkAuth();
+          checkDinnerStatus();
+
+          // URL 해시에 따라 초기 페이지 표시
+          const pageId = window.location.hash.slice(1) || "home";
+          showPage(pageId);
+
+          // 주기적으로 상태 업데이트 (WebSocket 대신 HTTP 폴링 사용)
+          updateStatsInterval = setInterval(async () => {
+            if (!document.hidden) {
+              // 페이지가 보이는 상태일 때만 업데이트
+              await checkDinnerStatus();
+              if (
+                !document
+                  .getElementById("home-page")
+                  .classList.contains("hidden")
+              ) {
+                await loadStats();
+              }
+              if (
+                !document
+                  .getElementById("history-page")
+                  .classList.contains("hidden")
+              ) {
+                await loadHistory();
+              }
+            }
+          }, 30000); // 30초마다 업데이트
+        } catch (error) {
+          console.error("초기화 오류:", error);
+          window.location.href = "/";
+        }
+      });
+
+      // 통이지 언로드 시 정리
+      window.addEventListener("beforeunload", () => {
+        clearInterval(updateStatsInterval);
+      });
+
+      // 현재 선택된 사용자 ID 저장
+      let currentUploadUserId = null;
+
+      // 프로필 이미지 업로드 버튼 클릭 처리
+      function uploadProfileImage(userId) {
+        currentUploadUserId = userId;
+        document.getElementById("profileImageInput").click();
+      }
+
+      // 프로필 이미지 파일 선택 처리
+      async function handleProfileImageUpload(input) {
+        if (!currentUploadUserId || !input.files || !input.files[0]) return;
+
+        const file = input.files[0];
+        if (!file.type.startsWith("image/")) {
+          alert("이미지 파일만 업로드할 수 있습니다.");
+          return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+          alert("파일 크기는 5MB를 초과할 수 없습니다.");
+          return;
+        }
+
+        try {
+          const formData = new FormData();
+          formData.append("profileImage", file);
+
+          const response = await axios.post(
+            `/api/admin/users/${currentUploadUserId}/profile-image`,
+            formData,
+            {
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
+
+          if (response.data.success) {
+            alert("프로필 이미지가 업로드되었습니다.");
+            loadUsers(); // 사용자 목록 새로고침
+          }
+        } catch (error) {
+          console.error("프로필 이미지 업로드 오류:", error);
+          alert("프로필 이미지 업로드에 실패했습니다.");
+        } finally {
+          input.value = ""; // input 초기화
+          currentUploadUserId = null;
+        }
+      }
+
+      // 프로필 이미지 삭제
+      async function deleteProfileImage(userId) {
+        if (!confirm("프로필 이미지를 삭제하시겠습니까?")) return;
+
+        try {
+          const response = await axios.delete(
+            `/api/admin/users/${userId}/profile-image`
+          );
+          if (response.data.success) {
+            alert("프로필 이미지가 삭제되었습니다.");
+            loadUsers(); // 사용자 목록 새로고침
+          }
+        } catch (error) {
+          console.error("프로필 이미지 삭제 오류:", error);
+          alert("프로필 이미지 삭제에 실패했습니다.");
+        }
+      }
+
+      // 급식 상태 확인 및 UI 업데이트
+      async function checkDinnerStatus() {
+        try {
+          const response = await axios.get("/api/dinner/today-status");
+          const { isActive, dinnerDate } = response.data;
+
+          const statusDiv = document.getElementById("dinnerStatus");
+          const startBtn = document.getElementById("startDinnerBtn");
+          const endBtn = document.getElementById("endDinnerBtn");
+
+          if (currentUser.isReader || currentUser.isAdmin) {
+            if (isActive) {
+              statusDiv.innerHTML = `<span class="text-green-600">● 급식 진행 중</span>`;
+              startBtn.classList.add("hidden");
+              endBtn.classList.remove("hidden");
+            } else {
+              if (dinnerDate && dinnerDate.endTime) {
+                statusDiv.innerHTML = `<span class="text-red-600">● 급식 종료됨</span>`;
+              } else {
+                statusDiv.innerHTML = `<span class="text-gray-600">● 급식 대기 중</span>`;
+              }
+              startBtn.classList.remove("hidden");
+              endBtn.classList.add("hidden");
+            }
+          } else {
+            if (isActive) {
+              statusDiv.innerHTML = `<span class="text-green-600">● 급식 진행 중</span>`;
+            } else if (dinnerDate && dinnerDate.endTime) {
+              statusDiv.innerHTML = `<span class="text-red-600">● 급식 종료됨</span>`;
+            } else {
+              statusDiv.innerHTML = `<span class="text-gray-600">● 급식 대기 중</span>`;
+            }
+            startBtn.classList.add("hidden");
+            endBtn.classList.add("hidden");
+          }
+        } catch (error) {
+          console.error("급식 상태 확인 중 오류:", error);
+        }
+      }
+
+      // 급식 시작
+      async function startDinner() {
+        try {
+          if (!confirm("급식을 시작하시겠습니까?")) return;
+
+          await axios.post("/api/dinner/start");
+          alert("급식이 시작되었습니다.");
+          checkDinnerStatus();
+          loadStats();
+        } catch (error) {
+          console.error("급식 시작 중 오류:", error);
+          alert(error.response?.data?.message || "급식 시작에 실패했습니다.");
+        }
+      }
+
+      // 급식 종료
+      async function endDinner() {
+        try {
+          if (!confirm("급식을 종료하시겠습니까?")) return;
+
+          await axios.post("/api/dinner/end");
+          alert("급식이 종료되었습니다.");
+          checkDinnerStatus();
+          loadStats();
+        } catch (error) {
+          console.error("급식 종료 중 오류:", error);
+          alert(error.response?.data?.message || "급식 종료에 실패했습니다.");
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-gray-50 min-h-screen font-sans">
+    <!-- 네비게이션 바 -->
+    <nav class="bg-white shadow-sm fixed w-full top-0 z-50">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+          <div class="flex items-center space-x-8">
+            <h1 class="text-xl font-bold text-gray-900">석식 체크 시스템</h1>
+            <div class="hidden md:flex space-x-4">
+              <button
+                onclick="showPage('home')"
+                class="nav-link px-3 py-2 rounded-md text-sm font-medium"
+                data-page="home"
+              >
+                홈
+              </button>
+              <button
+                onclick="location.href='scanner.html'"
+                class="nav-link px-3 py-2 rounded-md text-sm font-medium"
+              >
+                QR 스캔
+              </button>
+              <button
+                onclick="showPage('history')"
+                class="nav-link px-3 py-2 rounded-md text-sm font-medium"
+                data-page="history"
+              >
+                체크 이력
+              </button>
+              <button
+                onclick="showPage('users')"
+                class="nav-link px-3 py-2 rounded-md text-sm font-medium admin-only hidden"
+                data-page="users"
+              >
+                사용자 관리
+              </button>
+            </div>
+          </div>
+          <div class="flex items-center space-x-4">
+            <span id="userName" class="text-sm text-gray-600"></span>
+            <button
+              onclick="showPage('password')"
+              class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors duration-200"
+            >
+              비밀번호 변경
+            </button>
+            <button
+              onclick="logout()"
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors duration-200"
+            >
+              로그아웃
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 메인 컨텐츠 -->
+    <main class="pt-16">
+      <!-- 홈 페이지 (통계) -->
+      <div
+        id="home-page"
+        class="page max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+      >
+        <div class="space-y-6">
+          <!-- 전체 통계 -->
+          <div class="bg-white rounded-2xl shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h2 class="text-xl font-bold text-gray-900">전체 통계</h2>
+              <div class="flex items-center space-x-4">
+                <div id="dinnerStatus" class="text-sm font-medium"></div>
+                <button
+                  id="startDinnerBtn"
+                  onclick="startDinner()"
+                  class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 hidden"
+                >
+                  급식 시작
+                </button>
+                <button
+                  id="endDinnerBtn"
+                  onclick="endDinner()"
+                  class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 hidden"
+                >
+                  급식 종료
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div
+                class="bg-gradient-to-br from-primary-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div
+                  class="text-4xl font-bold text-primary-600 mb-2"
+                  id="totalDays"
+                >
+                  0
+                </div>
+                <div class="text-sm font-medium text-primary-900">
+                  총 급식일
+                </div>
+              </div>
+              <div
+                class="bg-gradient-to-br from-green-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div
+                  class="text-4xl font-bold text-green-600 mb-2"
+                  id="totalChecks"
+                >
+                  0
+                </div>
+                <div class="text-sm font-medium text-green-900">총 체크 수</div>
+              </div>
+              <div
+                class="bg-gradient-to-br from-blue-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div
+                  class="text-4xl font-bold text-blue-600 mb-2"
+                  id="averageChecks"
+                >
+                  0
+                </div>
+                <div class="text-sm font-medium text-blue-900">일평균 체크</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 오늘의 통계 -->
+          <div class="bg-white rounded-2xl shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h2 class="text-xl font-bold text-gray-900">오늘의 통계</h2>
+              <div class="text-sm text-gray-500" id="todayDate"></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div
+                class="bg-gradient-to-br from-gray-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div class="grid grid-cols-2 gap-8">
+                  <div>
+                    <div
+                      class="text-3xl font-bold text-gray-900 mb-1"
+                      id="todayTotal"
+                    >
+                      0
+                    </div>
+                    <div class="text-sm font-medium text-gray-600">총 체크</div>
+                  </div>
+                  <div>
+                    <div
+                      class="text-3xl font-bold text-green-600 mb-1"
+                      id="todayApproved"
+                    >
+                      0
+                    </div>
+                    <div class="text-sm font-medium text-green-600">승인됨</div>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="bg-gradient-to-br from-red-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <h3 class="text-lg font-semibold text-red-900 mb-3">
+                  결식자 목록
+                </h3>
+                <div
+                  class="max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-red-200 scrollbar-track-red-50"
+                  id="absentList"
+                >
+                  <!-- 결식자 목록이 여기에 동적으로 추가됨 -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- QR 스캐너 페이지 제거 -->
+
+      <!-- 체크 이력 페이지 -->
+      <div
+        id="history-page"
+        class="page hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+      >
+        <div class="space-y-6">
+          <!-- 필터 섹션 -->
+          <div class="bg-white rounded-2xl shadow-sm p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">석식 체크 이력</h2>
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+              <div>
+                <label
+                  for="startDate"
+                  class="block text-sm font-medium text-gray-700"
+                  >시작일</label
+                >
+                <input
+                  type="date"
+                  id="startDate"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label
+                  for="endDate"
+                  class="block text-sm font-medium text-gray-700"
+                  >종료일</label
+                >
+                <input
+                  type="date"
+                  id="endDate"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label
+                  for="statusFilter"
+                  class="block text-sm font-medium text-gray-700"
+                  >상태</label
+                >
+                <select
+                  id="statusFilter"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                >
+                  <option value="">전체</option>
+                  <option value="approved">승인됨</option>
+                  <option value="denied">거부됨</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  for="studentFilter"
+                  class="block text-sm font-medium text-gray-700"
+                  >학생</label
+                >
+                <select
+                  id="studentFilter"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                >
+                  <option value="">전체</option>
+                </select>
+              </div>
+              <div>
+                <button
+                  onclick="loadHistory()"
+                  class="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                >
+                  조회
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 통계 요약 -->
+          <div class="bg-white rounded-2xl shadow-sm p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">기간 통계</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div
+                class="bg-gradient-to-br from-primary-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div
+                  class="text-3xl font-bold text-primary-600 mb-2"
+                  id="periodTotalDays"
+                >
+                  0
+                </div>
+                <div class="text-sm font-medium text-primary-900">
+                  총 급식일
+                </div>
+              </div>
+              <div
+                class="bg-gradient-to-br from-green-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div
+                  class="text-3xl font-bold text-green-600 mb-2"
+                  id="periodTotalChecks"
+                >
+                  0
+                </div>
+                <div class="text-sm font-medium text-green-900">총 체크 수</div>
+              </div>
+              <div
+                class="bg-gradient-to-br from-blue-50 to-white rounded-xl shadow-sm p-6"
+              >
+                <div
+                  class="text-3xl font-bold text-blue-600 mb-2"
+                  id="periodUniqueStudents"
+                >
+                  0
+                </div>
+                <div class="text-sm font-medium text-blue-900">
+                  참여 학생 수
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 사용자별 통계 -->
+          <div class="bg-white rounded-2xl shadow-sm p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-semibold text-gray-900">사용자별 통계</h3>
+              <div class="flex space-x-4">
+                <select
+                  id="gradeFilter"
+                  class="text-sm border rounded-md px-3 py-1"
+                >
+                  <option value="">전체 학년</option>
+                  <option value="1">1학년</option>
+                  <option value="2">2학년</option>
+                  <option value="3">3학년</option>
+                </select>
+                <select
+                  id="classFilter"
+                  class="text-sm border rounded-md px-3 py-1"
+                >
+                  <option value="">전체 반</option>
+                  <option value="1">1반</option>
+                  <option value="2">2반</option>
+                  <option value="3">3반</option>
+                  <option value="4">4반</option>
+                  <option value="5">5반</option>
+                  <option value="6">6반</option>
+                </select>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th
+                      class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24"
+                    >
+                      학번/이름
+                    </th>
+                    <th
+                      class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20"
+                    >
+                      학년반
+                    </th>
+                    <th
+                      class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32"
+                    >
+                      체크 현황
+                    </th>
+                    <th
+                      class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40"
+                    >
+                      마지막 체크
+                    </th>
+                    <th
+                      class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-24"
+                    >
+                      상세
+                    </th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="userStatsList"
+                  class="bg-white divide-y divide-gray-200"
+                >
+                  <!-- 사용자별 통계가 여기에 동적으로 추가됨 -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 체크 이력 -->
+          <div class="bg-white rounded-2xl shadow-sm p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">체크 이력</h3>
+            <div
+              class="overflow-x-auto rounded-lg border border-gray-200 shadow-sm"
+            >
+              <table class="w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th
+                      class="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      날짜/시간
+                    </th>
+                    <th
+                      class="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      학번
+                    </th>
+                    <th
+                      class="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      이름
+                    </th>
+                    <th
+                      class="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      학년/반/번호
+                    </th>
+                    <th
+                      class="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      상태
+                    </th>
+                    <th
+                      class="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      체크한 사람
+                    </th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="historyTableBody"
+                  class="bg-white divide-y divide-gray-200"
+                >
+                  <!-- 체크 이력이 여기에 동적으로 추가됨 -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 페이지네이션 -->
+            <div class="mt-4 flex justify-between items-center">
+              <div class="text-sm text-gray-700">
+                총 <span id="totalRecords">0</span>개의 기록
+              </div>
+              <div class="flex space-x-2">
+                <button
+                  id="prevPage"
+                  onclick="changePage(-1)"
+                  class="px-3 py-1 border rounded text-sm disabled:opacity-50"
+                >
+                  이전
+                </button>
+                <span id="currentPage" class="px-3 py-1">1</span>
+                <button
+                  id="nextPage"
+                  onclick="changePage(1)"
+                  class="px-3 py-1 border rounded text-sm disabled:opacity-50"
+                >
+                  다음
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사용자 관리 페이지 -->
+      <div
+        id="users-page"
+        class="page hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+      >
+        <div class="bg-white rounded-2xl shadow-sm p-6">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold text-gray-900">사용자 관리</h2>
+            <div class="flex space-x-4">
+              <button
+                onclick="showAddUserModal()"
+                class="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors duration-200"
+              >
+                사용자 추가
+              </button>
+            </div>
+          </div>
+
+          <!-- 필터 및 검색 섹션 -->
+          <div class="mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <label
+                for="gradeFilter"
+                class="block text-sm font-medium text-gray-700 mb-1"
+                >학년</label
+              >
+              <select
+                id="gradeFilter"
+                onchange="filterUsers()"
+                class="w-full rounded-lg border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              >
+                <option value="">전체</option>
+                <option value="1">1학년</option>
+                <option value="2">2학년</option>
+                <option value="3">3학년</option>
+              </select>
+            </div>
+            <div>
+              <label
+                for="classFilter"
+                class="block text-sm font-medium text-gray-700 mb-1"
+                >반</label
+              >
+              <select
+                id="classFilter"
+                onchange="filterUsers()"
+                class="w-full rounded-lg border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              >
+                <option value="">전체</option>
+                <option value="1">1반</option>
+                <option value="2">2반</option>
+                <option value="3">3반</option>
+                <option value="4">4반</option>
+                <option value="5">5반</option>
+                <option value="6">6반</option>
+              </select>
+            </div>
+            <div>
+              <label
+                for="approvalFilter"
+                class="block text-sm font-medium text-gray-700 mb-1"
+                >승인 상태</label
+              >
+              <select
+                id="approvalFilter"
+                onchange="filterUsers()"
+                class="w-full rounded-lg border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              >
+                <option value="">전체</option>
+                <option value="true">승인됨</option>
+                <option value="false">대기중</option>
+              </select>
+            </div>
+            <div class="md:col-span-2">
+              <label
+                for="searchInput"
+                class="block text-sm font-medium text-gray-700 mb-1"
+                >검색</label
+              >
+              <input
+                type="text"
+                id="searchInput"
+                placeholder="이름 또는 학번으로 검색"
+                onkeyup="filterUsers()"
+                class="w-full rounded-lg border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              />
+            </div>
+          </div>
+
+          <!-- 일괄 작업 섹션 -->
+          <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+              <input
+                type="checkbox"
+                id="selectAllUsers"
+                onchange="toggleSelectAll()"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              <label for="selectAllUsers" class="text-sm text-gray-600"
+                >전체 선택</label
+              >
+              <select
+                id="bulkActionSelect"
+                onchange="handleBulkAction()"
+                class="rounded-lg border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+                disabled
+              >
+                <option value="">일괄 작업 선택...</option>
+                <option value="approve">승인</option>
+                <option value="unapprove">승인 취소</option>
+                <option value="delete">삭제</option>
+                <option value="resetPassword">비밀번호 초기화</option>
+              </select>
+            </div>
+            <div class="text-sm text-gray-600">
+              총 <span id="totalUsers">0</span>명의 사용자
+            </div>
+          </div>
+
+          <!-- 사용자 테이블 -->
+          <div
+            class="overflow-x-auto rounded-lg border border-gray-200 shadow-sm"
+          >
+            <table class="w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="w-8 px-4 py-3.5"></th>
+                  <th
+                    class="w-16 px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onclick="sortTable('profile')"
+                  >
+                    프로필
+                  </th>
+                  <th
+                    class="w-24 px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onclick="sortTable('studentId')"
+                  >
+                    학번
+                  </th>
+                  <th
+                    class="w-32 px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onclick="sortTable('name')"
+                  >
+                    이름
+                  </th>
+                  <th
+                    class="w-40 px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onclick="sortTable('grade')"
+                  >
+                    학년/반/번호
+                  </th>
+                  <th
+                    class="w-32 px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    승인 상태
+                  </th>
+                  <th
+                    class="w-64 px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    권한 및 관리
+                  </th>
+                </tr>
+              </thead>
+              <tbody
+                id="userTableBody"
+                class="bg-white divide-y divide-gray-200"
+              ></tbody>
+            </table>
+          </div>
+
+          <!-- 페이지네이션 -->
+          <div class="mt-4 flex justify-between items-center">
+            <div class="flex space-x-2">
+              <select
+                id="pageSizeSelect"
+                onchange="changePageSize()"
+                class="rounded-lg border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+              >
+                <option value="10">10개씩 보기</option>
+                <option value="20">20개씩 보기</option>
+                <option value="50">50개씩 보기</option>
+                <option value="100">100개씩 보기</option>
+              </select>
+            </div>
+            <div class="flex space-x-2">
+              <button
+                id="prevPageBtn"
+                onclick="changePage(-1)"
+                class="px-3 py-1 border rounded text-sm disabled:opacity-50"
+              >
+                이전
+              </button>
+              <span id="currentPageSpan" class="px-3 py-1">1</span>
+              <button
+                id="nextPageBtn"
+                onclick="changePage(1)"
+                class="px-3 py-1 border rounded text-sm disabled:opacity-50"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사용자 추가 모달 -->
+      <div
+        id="addUserModal"
+        class="fixed inset-0 bg-gray-500 bg-opacity-75 hidden z-50"
+      >
+        <div class="fixed inset-0 overflow-y-auto">
+          <div
+            class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0"
+          >
+            <div
+              class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg"
+            >
+              <div
+                class="absolute top-0 left-0 right-0 bg-primary-50 px-4 py-3"
+              >
+                <div class="flex items-center justify-between">
+                  <h3 class="text-lg font-semibold text-primary-900">
+                    사용자 추가
+                  </h3>
+                  <button
+                    onclick="closeAddUserModal()"
+                    class="rounded-md bg-primary-50 text-primary-500 hover:text-primary-700"
+                  >
+                    <span class="sr-only">닫기</span>
+                    <svg
+                      class="h-6 w-6"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="bg-white px-4 pt-16 pb-4 sm:p-6 sm:pt-16">
+                <form id="addUserForm" class="space-y-6">
+                  <div class="grid grid-cols-2 gap-6">
+                    <div>
+                      <label
+                        for="newStudentId"
+                        class="block text-sm font-medium text-gray-700"
+                        >학번</label
+                      >
+                      <div class="mt-1 relative rounded-md shadow-sm">
+                        <input
+                          type="text"
+                          id="newStudentId"
+                          required
+                          pattern="^\d{4}$"
+                          class="block w-full rounded-md border-gray-300 pl-3 pr-3 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                          placeholder="0000"
+                        />
+                        <div
+                          class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
+                        >
+                          <span class="text-gray-500 sm:text-sm">#</span>
+                        </div>
+                      </div>
+                      <p class="mt-1 text-xs text-gray-500">
+                        4자리 숫자로 입력해주세요.
+                      </p>
+                    </div>
+                    <div>
+                      <label
+                        for="newName"
+                        class="block text-sm font-medium text-gray-700"
+                        >이름</label
+                      >
+                      <input
+                        type="text"
+                        id="newName"
+                        required
+                        pattern="^[가-힣]{2,4}$"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                        placeholder="홍길동"
+                      />
+                      <p class="mt-1 text-xs text-gray-500">
+                        2-4자의 한글로 입력해주세요.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-3 gap-4">
+                    <div>
+                      <label
+                        for="newGrade"
+                        class="block text-sm font-medium text-gray-700"
+                        >학년</label
+                      >
+                      <select
+                        id="newGrade"
+                        required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                      >
+                        <option value="">선택</option>
+                        <option value="1">1학년</option>
+                        <option value="2">2학년</option>
+                        <option value="3">3학년</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        for="newClass"
+                        class="block text-sm font-medium text-gray-700"
+                        >반</label
+                      >
+                      <select
+                        id="newClass"
+                        required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                      >
+                        <option value="">선택</option>
+                        <option value="1">1반</option>
+                        <option value="2">2반</option>
+                        <option value="3">3반</option>
+                        <option value="4">4반</option>
+                        <option value="5">5반</option>
+                        <option value="6">6반</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        for="newNumber"
+                        class="block text-sm font-medium text-gray-700"
+                        >번호</label
+                      >
+                      <input
+                        type="number"
+                        id="newNumber"
+                        required
+                        min="1"
+                        max="100"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                        placeholder="1"
+                      />
+                    </div>
+                  </div>
+                  <div class="mt-6 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onclick="closeAddUserModal()"
+                      class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="submit"
+                      class="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      추가
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 비밀번호 변경 페이지 -->
+      <div
+        id="password-page"
+        class="page hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+      >
+        <div class="bg-white rounded-2xl shadow-sm p-6 max-w-md mx-auto">
+          <h2 class="text-xl font-bold text-gray-900 mb-4">비밀번호 변경</h2>
+          <form id="passwordForm" class="space-y-4">
+            <div class="space-y-2">
+              <label
+                for="currentPassword"
+                class="block text-sm font-medium text-gray-700"
+              >
+                현재 비밀번호
+              </label>
+              <input
+                type="password"
+                id="currentPassword"
+                required
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+            </div>
+            <div class="space-y-2">
+              <label
+                for="newPassword"
+                class="block text-sm font-medium text-gray-700"
+              >
+                새 비밀번호
+              </label>
+              <input
+                type="password"
+                id="newPassword"
+                required
+                minlength="8"
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+              <p class="text-xs text-gray-500">
+                8자 이상의 비밀번호를 입력해주세요.
+              </p>
+            </div>
+            <div class="space-y-2">
+              <label
+                for="confirmNewPassword"
+                class="block text-sm font-medium text-gray-700"
+              >
+                새 비밀번호 확인
+              </label>
+              <input
+                type="password"
+                id="confirmNewPassword"
+                required
+                minlength="8"
+                class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+              />
+            </div>
+            <div id="passwordError" class="hidden text-sm text-red-600"></div>
+            <button
+              type="submit"
+              class="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors duration-200"
+            >
+              비밀번호 변경
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- 사용자 상세 통계 모달 -->
+      <div
+        id="userStatsModal"
+        class="fixed inset-0 bg-gray-500 bg-opacity-75 hidden"
+      >
+        <div class="fixed inset-0 overflow-y-auto">
+          <div
+            class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0"
+          >
+            <div
+              class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-4xl"
+            >
+              <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                <div class="absolute top-0 right-0 pt-4 pr-4">
+                  <button
+                    type="button"
+                    onclick="closeUserStatsModal()"
+                    class="rounded-md bg-white text-gray-400 hover:text-gray-500"
+                  >
+                    <span class="sr-only">Close</span>
+                    <svg
+                      class="h-6 w-6"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <div id="userStatsContent">
+                  <!-- 사용자 상세 통계가 여기에 동적으로 추가됨 -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사용자별 통계 모달 -->
+      <div
+        id="studentDetailModal"
+        class="fixed inset-0 bg-gray-500 bg-opacity-75 hidden z-50"
+      >
+        <div class="fixed inset-0 overflow-y-auto">
+          <div
+            class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0"
+          >
+            <div
+              class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-4xl"
+            >
+              <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                <div class="absolute top-0 right-0 pt-4 pr-4">
+                  <button
+                    type="button"
+                    onclick="closeStudentDetailModal()"
+                    class="rounded-md bg-white text-gray-400 hover:text-gray-500"
+                  >
+                    <span class="sr-only">닫기</span>
+                    <svg
+                      class="h-6 w-6"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <div id="studentDetailContent">
+                  <!-- 상세 통계가 여기에 동적으로 추가됨 -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 프로필 이미지 업로드를 위한 숨겨진 input 추가 -->
+      <div class="hidden">
+        <input
+          type="file"
+          id="profileImageInput"
+          accept="image/*"
+          onchange="handleProfileImageUpload(this)"
+        />
+      </div>
+    </main>
+
+    <script>
+      // 페이지 전환 함수
+      function showPage(pageId) {
+        document.querySelectorAll(".page").forEach((page) => {
+          page.classList.add("hidden");
+        });
+
+        document.getElementById(`${pageId}-page`).classList.remove("hidden");
+
+        document.querySelectorAll(".nav-link").forEach((link) => {
+          if (link.dataset.page === pageId) {
+            link.classList.add("text-primary-600", "bg-primary-50");
+          } else {
+            link.classList.remove("text-primary-600", "bg-primary-50");
+          }
+        });
+
+        // 페이지별 초기화
+        switch (pageId) {
+          case "home":
+            loadStats();
+            break;
+          case "history":
+            loadHistory();
+            break;
+          case "users":
+            loadUsers();
+            break;
+        }
+
+        window.location.hash = pageId;
+      }
+
+      // URL 해시 변경 시 페이지 전환
+      window.addEventListener("hashchange", () => {
+        const pageId = window.location.hash.slice(1) || "home";
+        showPage(pageId);
+      });
+
+      // 페이지 로드 시 초기화
+      window.addEventListener("load", async () => {
+        try {
+          await checkAuth();
+          checkDinnerStatus();
+
+          // URL 해시에 따라 초기 페이지 표시
+          const pageId = window.location.hash.slice(1) || "home";
+          showPage(pageId);
+
+          // 주기적으로 상태 업데이트 (WebSocket 대신 HTTP 폴링 사용)
+          updateStatsInterval = setInterval(async () => {
+            if (!document.hidden) {
+              // 페이지가 보이는 상태일 때만 업데이트
+              await checkDinnerStatus();
+              if (
+                !document
+                  .getElementById("home-page")
+                  .classList.contains("hidden")
+              ) {
+                await loadStats();
+              }
+              if (
+                !document
+                  .getElementById("history-page")
+                  .classList.contains("hidden")
+              ) {
+                await loadHistory();
+              }
+            }
+          }, 30000); // 30초마다 업데이트
+        } catch (error) {
+          console.error("초기화 오류:", error);
+          window.location.href = "/";
+        }
+      });
+
+      // 페이지 언로드 시 정리
+      window.addEventListener("beforeunload", () => {
+        clearInterval(updateStatsInterval);
+      });
+
+      // 통계 데이터 로드 및 렌더링
+      async function loadStats() {
+        try {
+          const response = await axios.get("/api/dinner/stats");
+          const { overall, today } = response.data;
+
+          // 전체 통계 업데이트
+          document.getElementById("totalDays").textContent =
+            overall.totalDays.toLocaleString();
+          document.getElementById("totalChecks").textContent =
+            overall.totalChecks.toLocaleString();
+          document.getElementById("averageChecks").textContent =
+            overall.averageChecksPerDay;
+
+          // 오늘 날짜 표시
+          document.getElementById("todayDate").textContent = moment(
+            today.date
+          ).format("YYYY년 M월 D일");
+
+          // 오늘의 통계 업데이트
+          document.getElementById("todayTotal").textContent =
+            today.total.toLocaleString();
+          document.getElementById("todayApproved").textContent =
+            today.approved.toLocaleString();
+
+          // 결식자 목록 업데이트
+          const absentList = document.getElementById("absentList");
+          absentList.innerHTML =
+            today.absent
+              .filter((student) => !student.isAdmin) // 관리자 제외
+              .map(
+                (student) => `
+              <div class="py-2 px-3 rounded-lg mb-1 bg-white shadow-sm">
+                <div class="font-medium text-gray-900">${student.name}</div>
+                <div class="text-sm text-gray-500">${student.grade}학년 ${student.class}반 ${student.number}번</div>
+              </div>
+            `
+              )
+              .join("") ||
+            '<div class="text-center py-4 text-gray-500">결식자가 없습니다</div>';
+        } catch (error) {
+          console.error("Stats error:", error);
+          alert("통계를 불러오는데 실패했습니다.");
+        }
+      }
+
+      // 사용자 상세 통계 모달 표시
+      async function showUserStats(studentId) {
+        try {
+          const response = await axios.get(
+            `/api/dinner/user-stats/${studentId}`
+          );
+          const { user, summary, recentChecks } = response.data;
+
+          const content = document.getElementById("userStatsContent");
+          const absenceDays = summary.totalDays - summary.approvedChecks;
+          const attendanceRate = (
+            (summary.approvedChecks / summary.totalDays) *
+            100
+          ).toFixed(1);
+
+          content.innerHTML = `
+            <div class="p-6">
+              <h3 class="text-xl font-bold mb-6">
+                ${user.grade}학년 ${user.class}반 ${user.number}번 ${user.name}
+                <span class="text-gray-500 text-base ml-2">${
+                  user.studentId
+                }</span>
+              </h3>
+              
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-gray-50 p-4 rounded-lg text-center">
+                  <div class="text-2xl font-bold text-gray-900">${
+                    summary.totalDays
+                  }일</div>
+                  <div class="text-sm text-gray-600">총 급식일</div>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg text-center">
+                  <div class="text-2xl font-bold text-green-600">${
+                    summary.approvedChecks
+                  }일</div>
+                  <div class="text-sm text-green-600">급식</div>
+                </div>
+                <div class="bg-red-50 p-4 rounded-lg text-center">
+                  <div class="text-2xl font-bold text-red-600">${absenceDays}일</div>
+                  <div class="text-sm text-red-600">결식</div>
+                </div>
+                <div class="bg-primary-50 p-4 rounded-lg text-center">
+                  <div class="text-2xl font-bold text-primary-600">${attendanceRate}%</div>
+                  <div class="text-sm text-primary-600">급식률</div>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-lg border border-gray-200">
+                <div class="px-4 py-3 border-b border-gray-200">
+                  <h4 class="font-semibold text-gray-900">최근 기록</h4>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                      <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">날짜</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">상태</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                      ${recentChecks
+                        .map(
+                          (check) => `
+                        <tr class="hover:bg-gray-50">
+                          <td class="px-4 py-3 text-sm text-gray-900">
+                            ${moment(check.timestamp).format(
+                              "YYYY-MM-DD (ddd) HH:mm"
+                            )}
+                          </td>
+                          <td class="px-4 py-3">
+                            <span class="px-2 py-1 text-xs font-medium rounded-full ${
+                              check.status === "approved"
+                                ? "bg-green-100 text-green-800"
+                                : "bg-red-100 text-red-800"
+                            }">
+                              ${check.status === "approved" ? "급식" : "결식"}
+                            </span>
+                          </td>
+                        </tr>
+                      `
+                        )
+                        .join("")}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          `;
+
+          document.getElementById("userStatsModal").classList.remove("hidden");
+        } catch (error) {
+          console.error("User stats error:", error);
+          alert("사용자 통계를 불러오는데 실패했습니다.");
+        }
+      }
+
+      // 사용자 상세 통계 모달 닫기
+      function closeUserStatsModal() {
+        document.getElementById("userStatsModal").classList.add("hidden");
+      }
+
+      // 사용자 목록 로드
+      async function loadUsers() {
+        if (!currentUser.isAdmin) return;
+
+        try {
+          const response = await axios.get("/api/admin/users");
+          users = response.data;
+          renderUsers();
+        } catch (error) {
+          console.error("User management error:", error);
+          alert("사용자 목록을 불러오는데 실패했습니다.");
+        }
+      }
+
+      // 사용자 관리 관련 변수
+      let users = [];
+      let currentSort = { field: null, ascending: true };
+      let currentPage = 1;
+      let pageSize = 10;
+      let selectedUsers = new Set();
+
+      // 사용자 추가 모달 표시
+      function showAddUserModal() {
+        document.getElementById("addUserModal").classList.remove("hidden");
+      }
+
+      // 사용자 추가 모달 닫기
+      function closeAddUserModal() {
+        document.getElementById("addUserModal").classList.add("hidden");
+        document.getElementById("addUserForm").reset();
+      }
+
+      // 사용자 추가 폼 제출 처리
+      document
+        .getElementById("addUserForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          try {
+            const response = await axios.post("/api/admin/users", {
+              studentId: document.getElementById("newStudentId").value,
+              name: document.getElementById("newName").value,
+              grade: parseInt(document.getElementById("newGrade").value),
+              class: parseInt(document.getElementById("newClass").value),
+              number: parseInt(document.getElementById("newNumber").value),
+              password: "1234",
+              isApproved: true,
+            });
+
+            if (response.data.success) {
+              alert('사용자가 추가되었습니다. 초기 비밀번호는 "1234"입니다.');
+              closeAddUserModal();
+              loadUsers();
+            }
+          } catch (error) {
+            alert(
+              error.response?.data?.message || "사용자 추가에 실패했습니다."
+            );
+          }
+        });
+
+      // 전체 선택 토글
+      function toggleSelectAll() {
+        const selectAllCheckbox = document.getElementById("selectAllUsers");
+        const checkboxes = document.querySelectorAll(
+          'input[name="userCheckbox"]'
+        );
+
+        checkboxes.forEach((checkbox) => {
+          checkbox.checked = selectAllCheckbox.checked;
+          if (selectAllCheckbox.checked) {
+            selectedUsers.add(checkbox.value);
+          } else {
+            selectedUsers.delete(checkbox.value);
+          }
+        });
+
+        updateBulkActionButton();
+      }
+
+      // 개별 체크박스 변경 처리
+      function handleCheckboxChange(checkbox) {
+        if (checkbox.checked) {
+          selectedUsers.add(checkbox.value);
+        } else {
+          selectedUsers.delete(checkbox.value);
+        }
+
+        updateBulkActionButton();
+      }
+
+      // 일괄 작업 버튼 상태 업데이트
+      function updateBulkActionButton() {
+        const bulkActionSelect = document.getElementById("bulkActionSelect");
+        bulkActionSelect.disabled = selectedUsers.size === 0;
+      }
+
+      // 일괄 작업 처리
+      async function handleBulkAction() {
+        const action = document.getElementById("bulkActionSelect").value;
+        if (!action || selectedUsers.size === 0) return;
+
+        const confirmed = confirm(
+          `선택한 ${selectedUsers.size}명의 사용자에 대해 ${
+            action === "approve"
+              ? "승인"
+              : action === "unapprove"
+              ? "승인 취소"
+              : action === "delete"
+              ? "삭제"
+              : "비밀번호 초기화"
+          } 작업을 수행하시겠습니까?`
+        );
+
+        if (!confirmed) {
+          document.getElementById("bulkActionSelect").value = "";
+          return;
+        }
+
+        try {
+          for (const userId of selectedUsers) {
+            switch (action) {
+              case "approve":
+                await axios.post("/api/admin/approve-user", {
+                  userId,
+                  isApproved: true,
+                });
+                break;
+              case "unapprove":
+                await axios.post("/api/admin/approve-user", {
+                  userId,
+                  isApproved: false,
+                });
+                break;
+              case "delete":
+                await axios.delete(`/api/admin/users/${userId}`);
+                break;
+              case "resetPassword":
+                await axios.post("/api/admin/reset-password", { userId });
+                break;
+            }
+          }
+
+          alert("일괄 작업이 완료되었습니다.");
+          selectedUsers.clear();
+          document.getElementById("bulkActionSelect").value = "";
+          document.getElementById("selectAllUsers").checked = false;
+          loadUsers();
+        } catch (error) {
+          alert("일괄 작업 중 오류가 발생했습니다.");
+        }
+      }
+
+      // 테이블 정렬
+      function sortTable(field) {
+        if (currentSort.field === field) {
+          currentSort.ascending = !currentSort.ascending;
+        } else {
+          currentSort.field = field;
+          currentSort.ascending = true;
+        }
+
+        users.sort((a, b) => {
+          let valueA, valueB;
+
+          switch (field) {
+            case "studentId":
+            case "name":
+              valueA = a[field];
+              valueB = b[field];
+              break;
+            case "grade":
+              valueA = a.grade * 1000 + a.class * 100 + a.number;
+              valueB = b.grade * 1000 + b.class * 100 + b.number;
+              break;
+            default:
+              return 0;
+          }
+
+          if (valueA < valueB) return currentSort.ascending ? -1 : 1;
+          if (valueA > valueB) return currentSort.ascending ? 1 : -1;
+          return 0;
+        });
+
+        renderUsers();
+      }
+
+      // 페이지 크기 변경
+      function changePageSize() {
+        pageSize = parseInt(document.getElementById("pageSizeSelect").value);
+        currentPage = 1;
+        renderUsers();
+      }
+
+      // 페이지 변경
+      function changePage(delta) {
+        const maxPage = Math.ceil(getFilteredUsers().length / pageSize);
+        currentPage = Math.max(1, Math.min(currentPage + delta, maxPage));
+        renderUsers();
+      }
+
+      // 필터링된 사용자 목록 반환
+      function getFilteredUsers() {
+        const gradeFilter = document.getElementById("gradeFilter").value;
+        const classFilter = document.getElementById("classFilter").value;
+        const approvalFilter = document.getElementById("approvalFilter").value;
+        const searchTerm = document
+          .getElementById("searchInput")
+          .value.toLowerCase();
+
+        return users.filter((user) => {
+          if (gradeFilter && user.grade.toString() !== gradeFilter)
+            return false;
+          if (classFilter && user.class.toString() !== classFilter)
+            return false;
+          if (
+            approvalFilter !== "" &&
+            user.isApproved.toString() !== approvalFilter
+          )
+            return false;
+          if (
+            searchTerm &&
+            !user.name.toLowerCase().includes(searchTerm) &&
+            !user.studentId.toLowerCase().includes(searchTerm)
+          )
+            return false;
+          return true;
+        });
+      }
+
+      // 사용자 목록 필터링
+      function filterUsers() {
+        currentPage = 1;
+        renderUsers();
+      }
+
+      // 사용자 목록 렌더링
+      function renderUsers() {
+        const filteredUsers = getFilteredUsers();
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        const pageUsers = filteredUsers.slice(start, end);
+
+        const tbody = document.getElementById("userTableBody");
+        tbody.innerHTML = pageUsers
+          .map(
+            (user) => `
+          <tr class="hover:bg-gray-50 transition-colors">
+            <td class="px-4 py-4 whitespace-nowrap">
+              <input type="checkbox" name="userCheckbox" value="${user._id}"
+                ${selectedUsers.has(user._id) ? "checked" : ""}
+                onchange="handleCheckboxChange(this)"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+            </td>
+            <td class="px-4 py-4 whitespace-nowrap">
+              <div class="flex items-center justify-center">
+                <div class="relative w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden group">
+                  ${
+                    user.profileImage
+                      ? `<img src="${user.profileImage}" alt="${user.name}" class="w-full h-full object-cover">`
+                      : `<span class="text-lg text-gray-500">${user.name.charAt(
+                          0
+                        )}</span>`
+                  }
+                  <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div class="flex space-x-1">
+                      <button onclick="uploadProfileImage('${
+                        user._id
+                      }')" class="p-1 text-white hover:text-primary-200">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                      </button>
+                      ${
+                        user.profileImage
+                          ? `<button onclick="deleteProfileImage('${user._id}')" class="p-1 text-white hover:text-red-200">
+                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                              </svg>
+                            </button>`
+                          : ""
+                      }
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${
+              user.studentId
+            }</td>
+            <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">${
+              user.name
+            }</td>
+            <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+              ${user.grade}학년 ${user.class}반 ${user.number}번
+            </td>
+            <td class="px-4 py-4 whitespace-nowrap">
+              <select onchange="updateApproval('${user._id}', this.value)"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm
+                ${
+                  user.isApproved
+                    ? "text-green-700 bg-green-50"
+                    : "text-red-700 bg-red-50"
+                }">
+                <option value="true" ${
+                  user.isApproved ? "selected" : ""
+                }>승인됨</option>
+                <option value="false" ${
+                  !user.isApproved ? "selected" : ""
+                }>대기중</option>
+              </select>
+            </td>
+            <td class="px-4 py-4 whitespace-nowrap">
+              <div class="flex flex-col space-y-2">
+                <div class="flex items-center space-x-4">
+                  <label class="inline-flex items-center">
+                    <input type="checkbox" ${user.isAdmin ? "checked" : ""}
+                      onchange="updateAdmin('${user._id}', this.checked)"
+                      class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+                    <span class="ml-2 text-sm font-medium text-gray-700">관리자</span>
+                  </label>
+                  <label class="inline-flex items-center">
+                    <input type="checkbox" ${user.isReader ? "checked" : ""}
+                      onchange="updateReader('${user._id}', this.checked)"
+                      class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+                    <span class="ml-2 text-sm font-medium text-gray-700">리더</span>
+                  </label>
+                </div>
+                <div class="flex space-x-2">
+                  <button onclick="resetPassword('${user._id}')"
+                    class="inline-flex items-center px-2.5 py-1.5 border border-primary-300 text-xs font-medium rounded text-primary-700 bg-primary-50 hover:bg-primary-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                    </svg>
+                    비밀번호 초기화
+                  </button>
+                  <button onclick="deleteUser('${user._id}')"
+                    class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    삭제
+                  </button>
+                </div>
+              </div>
+            </td>
+          </tr>
+        `
+          )
+          .join("");
+
+        // 페이지네이션 업데이트
+        document.getElementById("totalUsers").textContent =
+          filteredUsers.length;
+        document.getElementById("currentPageSpan").textContent = currentPage;
+        document.getElementById("prevPageBtn").disabled = currentPage === 1;
+        document.getElementById("nextPageBtn").disabled =
+          end >= filteredUsers.length;
+      }
+
+      // 사용자 목록 로드 함수 수정
+      async function loadUsers() {
+        try {
+          const response = await axios.get("/api/admin/users");
+          users = response.data;
+          renderUsers();
+        } catch (error) {
+          console.error("User management error:", error);
+          alert("사용자 목록을 불러오는데 실패했습니다.");
+        }
+      }
+
+      // 비밀번호 초기화 함수 추가
+      async function resetPassword(userId) {
+        try {
+          if (
+            !confirm(
+              "이 사용자의 비밀번호를 초기화하시겠습니까?\n8자리 난수로 초기화됩니다."
+            )
+          )
+            return;
+
+          const response = await axios.post("/api/admin/reset-password", {
+            userId,
+          });
+          alert(
+            `비밀번호가 초기화되었습니다.\n새 비밀번호: ${response.data.newPassword}`
+          );
+        } catch (error) {
+          console.error("Password reset error:", error);
+          alert(
+            error.response?.data?.message || "비밀번호 초기화에 실패했습니다."
+          );
+        }
+      }
+
+      // 권한 업데이트 함수들 추가
+      async function updateAdmin(userId, isAdmin) {
+        try {
+          await axios.post("/api/admin/set-admin", { userId, isAdmin });
+          alert(
+            isAdmin
+              ? "관리자 권한이 부여되었습니다."
+              : "관리자 권한이 해제되었습니다."
+          );
+        } catch (error) {
+          console.error("Admin update error:", error);
+          alert("권한 변경에 실패했습니다.");
+          loadUsers(); // 실패 시 목록 새로고침
+        }
+      }
+
+      async function updateReader(userId, isReader) {
+        try {
+          await axios.post("/api/admin/set-reader", { userId, isReader });
+          alert(
+            isReader
+              ? "리더 권한이 부여되었습니다."
+              : "리더 권한이 해제되었습니다."
+          );
+        } catch (error) {
+          console.error("Reader update error:", error);
+          alert("권한 변경에 실패했습니다.");
+          loadUsers(); // 실패 시 목록 새로고침
+        }
+      }
+
+      async function updateApproval(userId, isApproved) {
+        try {
+          await axios.post("/api/admin/approve-user", {
+            userId,
+            isApproved: isApproved === "true",
+          });
+          alert(
+            isApproved === "true"
+              ? "사용자가 승인되었습니다."
+              : "사용자 승인이 취소되었습니다."
+          );
+        } catch (error) {
+          console.error("Approval update error:", error);
+          alert("승인 상태 변경에 실패했습니다.");
+          loadUsers(); // 실패 시 목록 새로고침
+        }
+      }
+
+      async function deleteUser(userId) {
+        try {
+          if (
+            !confirm(
+              "정말 이 사용자를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
+            )
+          )
+            return;
+
+          await axios.delete(`/api/admin/users/${userId}`);
+          alert("사용자가 삭제되었습니다.");
+          loadUsers();
+        } catch (error) {
+          console.error("User deletion error:", error);
+          alert("사용자 삭제에 실패했습니다.");
+        }
+      }
+
+      // 체크 이력 관련 변수
+      let historyCurrentPage = 1;
+      let historyPageSize = 20;
+
+      // 체크 이력 로드
+      async function loadHistory() {
+        try {
+          const startDate = document.getElementById("startDate").value;
+          const endDate = document.getElementById("endDate").value;
+          const status = document.getElementById("statusFilter").value;
+          const studentId = document.getElementById("studentFilter").value;
+
+          const params = new URLSearchParams({
+            page: historyCurrentPage,
+            limit: historyPageSize,
+            ...(startDate && { startDate }),
+            ...(endDate && { endDate }),
+            ...(status && { status }),
+            ...(studentId && { studentId }),
+          });
+
+          const response = await axios.get(`/api/dinner/history?${params}`);
+          const { history, users, pagination, summary } = response.data;
+
+          // 학생 필터 옵션 업데이트
+          const studentFilter = document.getElementById("studentFilter");
+          if (studentFilter.children.length <= 1) {
+            const options = users
+              .map(
+                (user) =>
+                  `<option value="${user.studentId}">${user.grade}학년 ${user.class}반 ${user.number}번 ${user.name} (${user.studentId})</option>`
+              )
+              .join("");
+            studentFilter.innerHTML =
+              '<option value="">전체</option>' + options;
+          }
+
+          // 통계 요약 업데이트
+          document.getElementById("periodTotalDays").textContent =
+            summary.totalDays.toLocaleString();
+          document.getElementById("periodTotalChecks").textContent =
+            summary.totalChecks.toLocaleString();
+          document.getElementById("periodUniqueStudents").textContent =
+            summary.uniqueStudents.toLocaleString();
+
+          // 체크 이력 테이블 업데이트
+          const tbody = document.getElementById("historyTableBody");
+          tbody.innerHTML = history
+            .map(
+              (check) => `
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3.5 text-sm text-gray-900">
+                ${moment(check.timestamp).format("YYYY-MM-DD HH:mm")}
+              </td>
+              <td class="px-4 py-3.5 text-sm text-gray-900">${
+                check.studentId
+              }</td>
+              <td class="px-4 py-3.5 text-sm text-gray-900">${
+                check.studentName
+              }</td>
+              <td class="px-4 py-3.5 text-sm text-gray-500">
+                ${check.grade}학년 ${check.class}반 ${check.number}번
+              </td>
+              <td class="px-4 py-3.5 text-sm">
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                  ${
+                    check.status === "approved"
+                      ? "bg-green-100 text-green-800"
+                      : "bg-red-100 text-red-800"
+                  }">
+                  ${check.status === "approved" ? "승인됨" : "거부됨"}
+                </span>
+              </td>
+              <td class="px-4 py-3.5 text-sm text-gray-500">${
+                check.checkedBy
+              }</td>
+            </tr>
+          `
+            )
+            .join("");
+
+          // 페이지네이션 업데이트
+          document.getElementById("totalRecords").textContent =
+            pagination.totalRecords.toLocaleString();
+          document.getElementById("currentPage").textContent =
+            pagination.currentPage;
+          document.getElementById("prevPage").disabled =
+            pagination.currentPage <= 1;
+          document.getElementById("nextPage").disabled =
+            pagination.currentPage >= pagination.totalPages;
+
+          // 사용자별 통계 테이블 업데이트
+          const userStatsBody = document.getElementById("userStatsList");
+          userStatsBody.innerHTML = users
+            .map((user) => {
+              return `
+              <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3.5 text-sm text-gray-900">
+                  ${user.studentId}<br>
+                  <span class="text-gray-500">${user.name}</span>
+                </td>
+                <td class="px-4 py-3.5 text-sm text-gray-500">
+                  ${user.grade}학년 ${user.class}반
+                </td>
+                <td class="px-4 py-3.5 text-sm text-gray-900">
+                  ${user.totalChecks}회
+                </td>
+                <td class="px-4 py-3.5 text-sm text-gray-500">
+                  ${
+                    user.lastCheck
+                      ? moment(user.lastCheck).format("YYYY-MM-DD HH:mm")
+                      : "-"
+                  }
+                </td>
+                <td class="px-4 py-3.5 text-right">
+                  <button onclick="showUserStats('${user.studentId}')"
+                    class="text-primary-600 hover:text-primary-900 text-sm font-medium">
+                    상세보기
+                  </button>
+                </td>
+              </tr>
+            `;
+            })
+            .join("");
+        } catch (error) {
+          console.error("History load error:", error);
+          alert("체크 이력을 불러오는데 실패했습니다.");
+        }
+      }
+
+      // 체크 이력 페이지 변경
+      function changePage(delta) {
+        historyCurrentPage = Math.max(1, historyCurrentPage + delta);
+        loadHistory();
+      }
+    </script>
+  </body>
+</html>

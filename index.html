@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>석식 체크 시스템 - 로그인</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+      // Axios 기본 설정
+      axios.defaults.baseURL = "http://localhost:3000";
+      axios.defaults.headers.common["Content-Type"] = "application/json";
+
+      // 요청 인터셉터 설정
+      axios.interceptors.request.use(
+        (config) => {
+          const token = localStorage.getItem("accessToken");
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+          return config;
+        },
+        (error) => {
+          return Promise.reject(error);
+        }
+      );
+
+      // 응답 인터셉터 설정
+      axios.interceptors.response.use(
+        (response) => response,
+        async (error) => {
+          const originalRequest = error.config;
+
+          // 토큰 만료 시 갱신 처리
+          if (
+            error.response?.status === 401 &&
+            error.response?.data?.needRefresh &&
+            !originalRequest._retry
+          ) {
+            originalRequest._retry = true;
+
+            try {
+              const refreshToken = localStorage.getItem("refreshToken");
+              const response = await axios.post("/api/refresh-token", {
+                refreshToken,
+              });
+
+              if (response.data.success) {
+                localStorage.setItem("accessToken", response.data.accessToken);
+                localStorage.setItem(
+                  "refreshToken",
+                  response.data.refreshToken
+                );
+
+                originalRequest.headers.Authorization = `Bearer ${response.data.accessToken}`;
+                return axios(originalRequest);
+              }
+            } catch (refreshError) {
+              // 리프레시 토큰도 만료된 경우 로그인 페이지로 이동
+              if (refreshError.response?.data?.needRelogin) {
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
+                window.location.href = "index.html";
+              }
+              return Promise.reject(refreshError);
+            }
+          }
+
+          return Promise.reject(error);
+        }
+      );
+    </script>
+    <link
+      rel="stylesheet"
+      as="style"
+      crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Pretendard", "sans-serif"],
+            },
+            colors: {
+              primary: {
+                50: "#f0f9ff",
+                100: "#e0f2fe",
+                200: "#bae6fd",
+                300: "#7dd3fc",
+                400: "#38bdf8",
+                500: "#0ea5e9",
+                600: "#0284c7",
+                700: "#0369a1",
+                800: "#075985",
+                900: "#0c4a6e",
+              },
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body
+    class="bg-gray-50 min-h-screen font-sans flex items-center justify-center p-4"
+  >
+    <div class="w-full max-w-md">
+      <!-- 로그인 카드 -->
+      <div class="bg-white rounded-2xl shadow-sm p-8 space-y-6">
+        <div class="text-center space-y-2">
+          <h1 class="text-2xl font-bold text-gray-900">석식 체크 시스템</h1>
+        </div>
+
+        <form id="loginForm" class="space-y-4">
+          <!-- 학번 입력 -->
+          <div class="space-y-2">
+            <label
+              for="studentId"
+              class="block text-sm font-medium text-gray-700"
+            >
+              학번
+            </label>
+            <input
+              type="text"
+              id="studentId"
+              name="studentId"
+              required
+              pattern="\d{4}"
+              maxlength="4"
+              placeholder="학번 4자리"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+            />
+            <div id="studentIdError" class="hidden text-sm text-red-600"></div>
+          </div>
+
+          <!-- 비밀번호 입력 -->
+          <div class="space-y-2">
+            <label
+              for="password"
+              class="block text-sm font-medium text-gray-700"
+            >
+              비밀번호
+            </label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              minlength="8"
+              placeholder="비밀번호"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
+            />
+            <div id="passwordError" class="hidden text-sm text-red-600"></div>
+          </div>
+
+          <!-- 로그인 상태 유지 -->
+          <div class="flex items-center">
+            <input
+              type="checkbox"
+              id="keepLoggedIn"
+              name="keepLoggedIn"
+              class="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+            />
+            <label for="keepLoggedIn" class="ml-2 text-sm text-gray-600">
+              로그인 상태 유지
+            </label>
+          </div>
+
+          <!-- 로그인 버튼 -->
+          <button
+            type="submit"
+            class="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors duration-200"
+          >
+            로그인
+          </button>
+
+          <div
+            id="loginError"
+            class="hidden text-sm text-center text-red-600"
+          ></div>
+        </form>
+
+        <!-- 회원가입 링크 -->
+        <div class="text-center">
+          <a
+            href="signup.html"
+            class="text-sm text-primary-600 hover:text-primary-700 hover:underline"
+          >
+            회원가입
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document
+        .getElementById("loginForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const studentId = document.getElementById("studentId").value;
+          const password = document.getElementById("password").value;
+          const keepLoggedIn = document.getElementById("keepLoggedIn").checked;
+
+          try {
+            const response = await axios.post("/api/login", {
+              studentId,
+              password,
+              keepLoggedIn,
+              isWeb: true,
+            });
+
+            const data = response.data;
+
+            if (data.success) {
+              // 토큰 저장
+              localStorage.setItem("accessToken", data.accessToken);
+              localStorage.setItem("refreshToken", data.refreshToken);
+
+              // 리다이렉트
+              window.location.href = data.redirectUrl;
+            }
+          } catch (error) {
+            console.error("Login error:", error);
+            const errorElement = document.getElementById("loginError");
+            errorElement.textContent =
+              error.response?.data?.message || "로그인 중 오류가 발생했습니다.";
+            errorElement.classList.remove("hidden");
+          }
+        });
+
+      // 입력값 유효성 검사
+      document.getElementById("studentId").addEventListener("input", (e) => {
+        const studentId = e.target.value;
+        const errorElement = document.getElementById("studentIdError");
+
+        if (!/^\d{4}$/.test(studentId) && studentId.length === 4) {
+          errorElement.textContent = "학번은 4자리 숫자여야 합니다.";
+          errorElement.classList.remove("hidden");
+        } else {
+          errorElement.classList.add("hidden");
+        }
+      });
+
+      document.getElementById("password").addEventListener("input", (e) => {
+        const password = e.target.value;
+        const errorElement = document.getElementById("passwordError");
+
+        if (password.length > 0 && password.length < 8) {
+          errorElement.textContent = "비밀번호는 8자 이상이어야 합니다.";
+          errorElement.classList.remove("hidden");
+        } else {
+          errorElement.classList.add("hidden");
+        }
+      });
+    </script>
+  </body>
+</html>
