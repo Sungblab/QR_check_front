@@ -783,7 +783,7 @@
         clearInterval(pingInterval);
         clearTimeout(reconnectTimeout);
 
-        socket = new WebSocket("ws://localhost:3000");
+        socket = new WebSocket("wss://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app");
 
         socket.addEventListener("open", async () => {
           console.log("WebSocket 연결됨");
