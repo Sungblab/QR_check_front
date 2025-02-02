@@ -1772,6 +1772,12 @@
         const end = start + pageSize;
         const pageUsers = filteredUsers.slice(start, end);
 
+        // 이미지 URL에 서버 기본 URL 추가
+        const getImageUrl = (profileImage) => {
+          if (!profileImage) return null;
+          return profileImage.startsWith('http') ? profileImage : `${axios.defaults.baseURL}${profileImage}`;
+        };
+
         const tbody = document.getElementById("userTableBody");
         tbody.innerHTML = pageUsers
           .map(
@@ -1788,10 +1794,8 @@
                 <div class="relative w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden group">
                   ${
                     user.profileImage
-                      ? `<img src="${user.profileImage}" alt="${user.name}" class="w-full h-full object-cover">`
-                      : `<span class="text-lg text-gray-500">${user.name.charAt(
-                          0
-                        )}</span>`
+                      ? `<img src="${getImageUrl(user.profileImage)}" alt="${user.name}" class="w-full h-full object-cover">`
+                      : `<span class="text-lg text-gray-500">${user.name.charAt(0)}</span>`
                   }
                   <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <div class="flex space-x-1">

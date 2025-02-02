@@ -811,9 +811,21 @@
             console.log("WebSocket message received:", data);
 
             if (data.type === "DINNER_CHECK") {
+              // 모니터링 모드일 때만 업데이트
               if (isMonitoringMode) {
-                updateLatestStudent(data.data);
-                addMonitoringLog(data.data);
+                const checkData = {
+                  studentId: data.data.studentId,
+                  studentName: data.data.studentName,
+                  grade: data.data.grade,
+                  class: data.data.class,
+                  number: data.data.number,
+                  status: data.data.status,
+                  timestamp: data.timestamp,
+                  profileImage: data.data.profileImage
+                };
+                
+                updateLatestStudent(checkData);
+                addMonitoringLog(checkData);
               }
             } else if (data.type === "PONG") {
               console.log("Heartbeat received");
@@ -842,69 +854,54 @@
 
       // 최근 체크된 학생 정보 업데이트
       function updateLatestStudent(data) {
-        // 프로필 이미지 또는 이니셜 업데이트
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
-        document.getElementById("latestStudentImage").innerHTML =
-          data.profileImage
-            ? `<img src="${data.profileImage}" alt="${data.studentName}" class="w-full h-full object-cover">`
-            : `<div class="w-full h-full flex items-center justify-center bg-primary-100 text-primary-700 text-8xl">${initial}</div>`;
+        const imageUrl = data.profileImage || null;
 
-        // 학생 정보 업데이트
-        document.getElementById("latestStudentName").textContent =
-          data.studentName || "-";
-        document.getElementById("latestStudentId").textContent = data.studentId
-          ? `(${data.studentId})`
-          : "-";
-        document.getElementById("latestStudentClass").textContent =
-          data.grade && data.class && data.number
-            ? `${data.grade}학년 ${data.class}반 ${data.number}번`
-            : "-";
-        document.getElementById("latestStudentStatus").innerHTML =
-          data.status === "approved"
-            ? '<span class="text-green-600">✅ 승인됨</span>'
+        document.getElementById("latestStudentImage").innerHTML = imageUrl
+          ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-full h-full object-cover">`
+          : `<div class="w-full h-full flex items-center justify-center bg-primary-100 text-primary-700 text-8xl">${initial}</div>`;
+
+        document.getElementById("latestStudentName").textContent = data.studentName || "-";
+        document.getElementById("latestStudentId").textContent = data.studentId ? `(${data.studentId})` : "-";
+        document.getElementById("latestStudentClass").textContent = 
+          data.grade && data.class && data.number ? `${data.grade}학년 ${data.class}반 ${data.number}번` : "-";
+        document.getElementById("latestStudentStatus").innerHTML = 
+          data.status === "approved" 
+            ? '<span class="text-green-600">✅ 승인됨</span>' 
             : '<span class="text-red-600">❌ 거부됨</span>';
-        document.getElementById("latestCheckTime").textContent =
-          data.timestamp || "-";
+        document.getElementById("latestCheckTime").textContent = data.timestamp || "-";
       }
 
       // 모니터링 로그에 새 기록 추가
       function addMonitoringLog(data) {
         const monitoringLog = document.getElementById("monitoringLog");
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
+        const imageUrl = data.profileImage || null;
 
         const logEntry = document.createElement("div");
-        logEntry.className = `p-3 rounded-lg ${
-          data.status === "approved" ? "bg-green-50" : "bg-red-50"
-        }`;
+        logEntry.className = `p-3 rounded-lg ${data.status === "approved" ? "bg-green-50" : "bg-red-50"}`;
 
         logEntry.innerHTML = `
           <div class="flex items-center space-x-3">
             <div class="flex-shrink-0">
-              ${
-                data.profileImage
-                  ? `<img src="${data.profileImage}" alt="${data.studentName}" class="w-12 h-12 rounded-full object-cover">`
-                  : `<div class="w-12 h-12 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xl">${initial}</div>`
+              ${imageUrl 
+                ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-12 h-12 rounded-full object-cover">` 
+                : `<div class="w-12 h-12 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xl">${initial}</div>`
               }
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-base font-semibold text-gray-900">${
-                    data.studentName || "-"
-                  }</p>
+                  <p class="text-base font-semibold text-gray-900">${data.studentName || "-"}</p>
                   <p class="text-sm text-gray-600">${data.studentId || "-"}</p>
                 </div>
-                <span class="text-xs text-gray-500">${
-                  data.timestamp || "-"
-                }</span>
+                <span class="text-xs text-gray-500">${data.timestamp || "-"}</span>
               </div>
               <div class="flex items-center justify-between mt-1">
                 <p class="text-sm text-gray-600">
                   ${data.grade}학년 ${data.class}반 ${data.number}번
                 </p>
-                <span class="text-sm ${
-                  data.status === "approved" ? "text-green-600" : "text-red-600"
-                }">
+                <span class="text-sm ${data.status === "approved" ? "text-green-600" : "text-red-600"}">
                   ${data.status === "approved" ? "✅ 승인됨" : "❌ 거부됨"}
                 </span>
               </div>
