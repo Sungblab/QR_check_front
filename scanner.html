@@ -39,8 +39,7 @@
       };
 
       // Axios 기본 설정
-      axios.defaults.baseURL =
-        "https://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app";
+      axios.defaults.baseURL = "https://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app";
       axios.defaults.headers.common["Content-Type"] = "application/json";
 
       // 요청 인터셉터 설정
@@ -855,9 +854,7 @@
       // 최근 체크된 학생 정보 업데이트
       function updateLatestStudent(data) {
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
-        const imageUrl = data.profileImage ? 
-          (data.profileImage.startsWith('http') ? data.profileImage : `${axios.defaults.baseURL}${data.profileImage}`) 
-          : null;
+        const imageUrl = data.profileImage || null;
 
         document.getElementById("latestStudentImage").innerHTML = imageUrl
           ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-full h-full object-cover">`
@@ -878,9 +875,7 @@
       function addMonitoringLog(data) {
         const monitoringLog = document.getElementById("monitoringLog");
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
-        const imageUrl = data.profileImage ? 
-          (data.profileImage.startsWith('http') ? data.profileImage : `${axios.defaults.baseURL}${data.profileImage}`) 
-          : null;
+        const imageUrl = data.profileImage || null;
 
         const logEntry = document.createElement("div");
         logEntry.className = `p-3 rounded-lg ${data.status === "approved" ? "bg-green-50" : "bg-red-50"}`;
