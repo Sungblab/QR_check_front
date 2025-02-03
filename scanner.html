@@ -811,7 +811,6 @@
             console.log("WebSocket message received:", data);
 
             if (data.type === "DINNER_CHECK") {
-              // 모니터링 모드일 때만 업데이트
               if (isMonitoringMode) {
                 const checkData = {
                   studentId: data.data.studentId,
@@ -824,6 +823,7 @@
                   profileImage: data.data.profileImage
                 };
                 
+                console.log("Profile image URL:", checkData.profileImage); // 디버깅용
                 updateLatestStudent(checkData);
                 addMonitoringLog(checkData);
               }
@@ -855,7 +855,8 @@
       // 최근 체크된 학생 정보 업데이트
       function updateLatestStudent(data) {
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
-        const imageUrl = data.profileImage || null;
+        const imageUrl = data.profileImage;
+        console.log("Updating latest student with image:", imageUrl); // 디버깅용
 
         document.getElementById("latestStudentImage").innerHTML = imageUrl
           ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-full h-full object-cover">`
@@ -876,7 +877,8 @@
       function addMonitoringLog(data) {
         const monitoringLog = document.getElementById("monitoringLog");
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
-        const imageUrl = data.profileImage || null;
+        const imageUrl = data.profileImage;
+        console.log("Adding log entry with image:", imageUrl); // 디버깅용
 
         const logEntry = document.createElement("div");
         logEntry.className = `p-3 rounded-lg ${data.status === "approved" ? "bg-green-50" : "bg-red-50"}`;
