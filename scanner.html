@@ -812,6 +812,11 @@
             if (data.type === "DINNER_CHECK") {
               // 모니터링 모드일 때만 업데이트
               if (isMonitoringMode) {
+                // 이미지 URL 처리 추가
+                const profileImage = data.data.profileImage ? 
+                  (data.data.profileImage.startsWith('http') ? data.data.profileImage : `${axios.defaults.baseURL}${data.data.profileImage}`)
+                  : null;
+
                 const checkData = {
                   studentId: data.data.studentId,
                   studentName: data.data.studentName,
@@ -820,7 +825,7 @@
                   number: data.data.number,
                   status: data.data.status,
                   timestamp: data.timestamp,
-                  profileImage: data.data.profileImage
+                  profileImage: profileImage // 수정된 이미지 URL
                 };
                 
                 updateLatestStudent(checkData);
