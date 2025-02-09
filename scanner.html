@@ -39,7 +39,8 @@
       };
 
       // Axios 기본 설정
-      axios.defaults.baseURL = "https://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app";
+      axios.defaults.baseURL =
+        "https://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app";
       axios.defaults.headers.common["Content-Type"] = "application/json";
 
       // 요청 인터셉터 설정
@@ -782,7 +783,9 @@
         clearInterval(pingInterval);
         clearTimeout(reconnectTimeout);
 
-        socket = new WebSocket("wss://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app");
+        socket = new WebSocket(
+          "wss://port-0-qr-check-server-m5l6sc488b056240.sel4.cloudtype.app"
+        );
 
         socket.addEventListener("open", async () => {
           console.log("WebSocket 연결됨");
@@ -810,13 +813,8 @@
             console.log("WebSocket message received:", data);
 
             if (data.type === "DINNER_CHECK") {
-              // 모니터링 모드일 때만 업데이트
               if (isMonitoringMode) {
-                // 이미지 URL 처리 추가
-                const profileImage = data.data.profileImage ? 
-                  (data.data.profileImage.startsWith('http') ? data.data.profileImage : `${axios.defaults.baseURL}${data.data.profileImage}`)
-                  : null;
-
+                // 이미지 URL이 이미 서버에서 완전한 URL로 전달되므로 추가 처리가 필요 없음
                 const checkData = {
                   studentId: data.data.studentId,
                   studentName: data.data.studentName,
@@ -825,9 +823,9 @@
                   number: data.data.number,
                   status: data.data.status,
                   timestamp: data.timestamp,
-                  profileImage: profileImage // 수정된 이미지 URL
+                  profileImage: data.data.profileImage, // 서버에서 이미 완전한 URL로 전달됨
                 };
-                
+
                 updateLatestStudent(checkData);
                 addMonitoringLog(checkData);
               }
@@ -861,19 +859,29 @@
         const initial = data.studentName ? data.studentName.charAt(0) : "-";
         const imageUrl = data.profileImage || null;
 
+        if (imageUrl) {
+          console.log("Loading profile image from URL:", imageUrl); // 디버깅용 로그
+        }
+
         document.getElementById("latestStudentImage").innerHTML = imageUrl
-          ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-full h-full object-cover">`
+          ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-full h-full object-cover" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'w-full h-full flex items-center justify-center bg-primary-100 text-primary-700 text-8xl\'>${initial}</div>';">`
           : `<div class="w-full h-full flex items-center justify-center bg-primary-100 text-primary-700 text-8xl">${initial}</div>`;
 
-        document.getElementById("latestStudentName").textContent = data.studentName || "-";
-        document.getElementById("latestStudentId").textContent = data.studentId ? `(${data.studentId})` : "-";
-        document.getElementById("latestStudentClass").textContent = 
-          data.grade && data.class && data.number ? `${data.grade}학년 ${data.class}반 ${data.number}번` : "-";
-        document.getElementById("latestStudentStatus").innerHTML = 
-          data.status === "approved" 
-            ? '<span class="text-green-600">✅ 승인됨</span>' 
+        document.getElementById("latestStudentName").textContent =
+          data.studentName || "-";
+        document.getElementById("latestStudentId").textContent = data.studentId
+          ? `(${data.studentId})`
+          : "-";
+        document.getElementById("latestStudentClass").textContent =
+          data.grade && data.class && data.number
+            ? `${data.grade}학년 ${data.class}반 ${data.number}번`
+            : "-";
+        document.getElementById("latestStudentStatus").innerHTML =
+          data.status === "approved"
+            ? '<span class="text-green-600">✅ 승인됨</span>'
             : '<span class="text-red-600">❌ 거부됨</span>';
-        document.getElementById("latestCheckTime").textContent = data.timestamp || "-";
+        document.getElementById("latestCheckTime").textContent =
+          data.timestamp || "-";
       }
 
       // 모니터링 로그에 새 기록 추가
@@ -883,29 +891,38 @@
         const imageUrl = data.profileImage || null;
 
         const logEntry = document.createElement("div");
-        logEntry.className = `p-3 rounded-lg ${data.status === "approved" ? "bg-green-50" : "bg-red-50"}`;
+        logEntry.className = `p-3 rounded-lg ${
+          data.status === "approved" ? "bg-green-50" : "bg-red-50"
+        }`;
 
         logEntry.innerHTML = `
           <div class="flex items-center space-x-3">
             <div class="flex-shrink-0">
-              ${imageUrl 
-                ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-12 h-12 rounded-full object-cover">` 
-                : `<div class="w-12 h-12 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xl">${initial}</div>`
+              ${
+                imageUrl
+                  ? `<img src="${imageUrl}" alt="${data.studentName}" class="w-12 h-12 rounded-full object-cover">`
+                  : `<div class="w-12 h-12 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xl">${initial}</div>`
               }
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-base font-semibold text-gray-900">${data.studentName || "-"}</p>
+                  <p class="text-base font-semibold text-gray-900">${
+                    data.studentName || "-"
+                  }</p>
                   <p class="text-sm text-gray-600">${data.studentId || "-"}</p>
                 </div>
-                <span class="text-xs text-gray-500">${data.timestamp || "-"}</span>
+                <span class="text-xs text-gray-500">${
+                  data.timestamp || "-"
+                }</span>
               </div>
               <div class="flex items-center justify-between mt-1">
                 <p class="text-sm text-gray-600">
                   ${data.grade}학년 ${data.class}반 ${data.number}번
                 </p>
-                <span class="text-sm ${data.status === "approved" ? "text-green-600" : "text-red-600"}">
+                <span class="text-sm ${
+                  data.status === "approved" ? "text-green-600" : "text-red-600"
+                }">
                   ${data.status === "approved" ? "✅ 승인됨" : "❌ 거부됨"}
                 </span>
               </div>
