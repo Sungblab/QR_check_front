@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 배경 원 -->
+  <circle cx="256" cy="256" r="240" fill="#0284c7" />
+  <circle cx="256" cy="256" r="220" fill="#ffffff" />
+  <circle cx="256" cy="256" r="200" fill="#0284c7" />
+  
+  <!-- 식사 아이콘 (포크와 나이프) -->
+  <g transform="translate(140, 120) scale(0.9)">
+    <!-- 포크 -->
+    <rect x="60" y="80" width="20" height="200" rx="10" fill="#ffffff" />
+    <rect x="30" y="80" width="20" height="80" rx="10" fill="#ffffff" />
+    <rect x="90" y="80" width="20" height="80" rx="10" fill="#ffffff" />
+    
+    <!-- 나이프 -->
+    <path d="M180,80 L220,80 L220,200 C220,210 210,220 200,220 L200,280 L180,280 L180,80 Z" fill="#ffffff" />
+  </g>
+  
+  </svg>

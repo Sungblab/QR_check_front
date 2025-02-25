@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>석식 체크 시스템 - 로그인</title>
+    <!-- PWA 관련 메타 태그 추가 -->
+    <meta name="theme-color" content="#0284c7" />
+    <meta name="description" content="석식 체크 시스템 - 학생 식사 관리" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="석식 체크 시스템" />
+
+    <!-- PWA 매니페스트 파일 링크 -->
+    <link rel="manifest" href="manifest.json" />
+
+    <!-- PWA 아이콘 링크 -->
+    <link rel="icon" href="icons/favicon.ico" type="image/x-icon" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script>
@@ -106,6 +120,14 @@
   <body
     class="bg-gray-50 min-h-screen font-sans flex items-center justify-center p-4"
   >
+    <!-- 앱 설치 버튼 (오른쪽 위에 고정) -->
+    <button
+      id="installApp"
+      class="hidden fixed top-4 right-4 px-3 py-1 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 shadow-md z-50"
+    >
+      앱 설치하기
+    </button>
+
     <div class="w-full max-w-md">
       <!-- 로그인 카드 -->
       <div class="bg-white rounded-2xl shadow-sm p-8 space-y-6">
@@ -254,6 +276,53 @@
         } else {
           errorElement.classList.add("hidden");
         }
+      });
+    </script>
+
+    <!-- PWA 서비스 워커 등록 -->
+    <script>
+      // 서비스 워커 지원 확인 및 등록
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("/service-worker.js")
+            .then((registration) => {})
+            .catch((error) => {
+              console.error("서비스 워커 등록 실패:", error);
+            });
+        });
+      }
+
+      // PWA 설치 관련 코드
+      let deferredPrompt;
+      const installButton = document.getElementById("installApp");
+
+      window.addEventListener("beforeinstallprompt", (e) => {
+        // 브라우저 기본 설치 프롬프트 방지
+        e.preventDefault();
+        // 이벤트 저장
+        deferredPrompt = e;
+        // 설치 버튼 표시
+        installButton.classList.remove("hidden");
+      });
+
+      installButton.addEventListener("click", async () => {
+        if (!deferredPrompt) return;
+        // 설치 프롬프트 표시
+        deferredPrompt.prompt();
+        // 사용자 응답 대기
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`사용자 선택: ${outcome}`);
+        // 이벤트 초기화
+        deferredPrompt = null;
+        // 버튼 숨기기
+        installButton.classList.add("hidden");
+      });
+
+      // 이미 설치된 경우 버튼 숨기기
+      window.addEventListener("appinstalled", () => {
+        installButton.classList.add("hidden");
+        console.log("PWA가 설치되었습니다");
       });
     </script>
   </body>
