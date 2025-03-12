@@ -170,7 +170,6 @@
               id="password"
               name="password"
               required
-              minlength="8"
               placeholder="비밀번호"
               class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
             />
@@ -269,13 +268,7 @@
       document.getElementById("password").addEventListener("input", (e) => {
         const password = e.target.value;
         const errorElement = document.getElementById("passwordError");
-
-        if (password.length > 0 && password.length < 8) {
-          errorElement.textContent = "비밀번호는 8자 이상이어야 합니다.";
-          errorElement.classList.remove("hidden");
-        } else {
-          errorElement.classList.add("hidden");
-        }
+        errorElement.classList.add("hidden");
       });
     </script>
 

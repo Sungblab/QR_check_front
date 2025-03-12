@@ -350,6 +350,12 @@
                 QR 스캔
               </button>
               <button
+                onclick="location.href='qr.html'"
+                class="nav-link px-3 py-2 rounded-md text-sm font-medium"
+              >
+                QR 코드
+              </button>
+              <button
                 onclick="showPage('history')"
                 class="nav-link px-3 py-2 rounded-md text-sm font-medium"
                 data-page="history"
@@ -888,7 +894,9 @@
                 <option value="approve">승인</option>
                 <option value="unapprove">승인 취소</option>
                 <option value="delete">삭제</option>
-                <option value="resetPassword">비밀번호 초기화</option>
+                <option value="resetPassword">
+                  비밀번호 초기화 (자동 생성)
+                </option>
               </select>
             </div>
             <div class="text-sm text-gray-600">
@@ -992,7 +1000,7 @@
             class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0"
           >
             <div
-              class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg"
+              class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-4xl"
             >
               <div
                 class="absolute top-0 left-0 right-0 bg-primary-50 px-4 py-3"
@@ -1023,6 +1031,28 @@
                 </div>
               </div>
               <div class="bg-white px-4 pt-16 pb-4 sm:p-6 sm:pt-16">
+                <div class="mb-6">
+                  <div class="flex space-x-4 mb-4">
+                    <button
+                      type="button"
+                      id="singleUserBtn"
+                      onclick="switchToSingleUser()"
+                      class="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      단일 사용자 추가
+                    </button>
+                    <button
+                      type="button"
+                      id="bulkUserBtn"
+                      onclick="switchToBulkUser()"
+                      class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      대량 사용자 추가
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 단일 사용자 추가 폼 -->
                 <form id="addUserForm" class="space-y-6">
                   <div class="grid grid-cols-2 gap-6">
                     <div>
@@ -1124,6 +1154,23 @@
                       />
                     </div>
                   </div>
+                  <div>
+                    <label
+                      for="newPassword"
+                      class="block text-sm font-medium text-gray-700"
+                      >비밀번호 (선택)</label
+                    >
+                    <input
+                      type="text"
+                      id="newPassword"
+                      class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                      placeholder="비밀번호 직접 지정 (입력하지 않으면 자동 생성)"
+                    />
+                    <p class="mt-1 text-xs text-gray-500">
+                      비밀번호를 직접 지정하려면 입력하세요. 입력하지 않으면
+                      자동으로 생성됩니다.
+                    </p>
+                  </div>
                   <div class="mt-6 flex justify-end space-x-3">
                     <button
                       type="button"
@@ -1140,6 +1187,139 @@
                     </button>
                   </div>
                 </form>
+
+                <!-- 대량 사용자 추가 폼 -->
+                <form id="bulkAddUserForm" class="space-y-6 hidden">
+                  <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label
+                        for="bulkGrade"
+                        class="block text-sm font-medium text-gray-700"
+                        >학년</label
+                      >
+                      <select
+                        id="bulkGrade"
+                        required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                      >
+                        <option value="">선택</option>
+                        <option value="1">1학년</option>
+                        <option value="2">2학년</option>
+                        <option value="3">3학년</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        for="bulkClass"
+                        class="block text-sm font-medium text-gray-700"
+                        >반</label
+                      >
+                      <select
+                        id="bulkClass"
+                        required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                      >
+                        <option value="">선택</option>
+                        <option value="1">1반</option>
+                        <option value="2">2반</option>
+                        <option value="3">3반</option>
+                        <option value="4">4반</option>
+                        <option value="5">5반</option>
+                        <option value="6">6반</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        for="bulkPassword"
+                        class="block text-sm font-medium text-gray-700"
+                        >공통 비밀번호 (선택)</label
+                      >
+                      <input
+                        type="text"
+                        id="bulkPassword"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                        placeholder="공통 비밀번호 (입력하지 않으면 자동 생성)"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="border rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-4">
+                      <h4 class="text-md font-medium text-gray-900">
+                        학생 목록
+                      </h4>
+                      <button
+                        type="button"
+                        onclick="addStudentRow()"
+                        class="px-3 py-1 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none"
+                      >
+                        + 학생 추가
+                      </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                      <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                          <tr>
+                            <th
+                              scope="col"
+                              class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                              학번
+                            </th>
+                            <th
+                              scope="col"
+                              class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                              이름
+                            </th>
+                            <th
+                              scope="col"
+                              class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                              번호
+                            </th>
+                            <th
+                              scope="col"
+                              class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                              작업
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody
+                          id="studentTableBody"
+                          class="bg-white divide-y divide-gray-200"
+                        >
+                          <!-- 학생 행이 여기에 추가됩니다 -->
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div class="mt-4 text-sm text-gray-500">
+                      <p>
+                        * 학번은 4자리 숫자, 이름은 2-4자 한글, 번호는 1-100
+                        사이의 숫자여야 합니다.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="mt-6 flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onclick="closeAddUserModal()"
+                      class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="submit"
+                      class="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      일괄 추가
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
@@ -1153,7 +1333,11 @@
       >
         <div class="bg-white rounded-2xl shadow-sm p-6 max-w-md mx-auto">
           <h2 class="text-xl font-bold text-gray-900 mb-4">비밀번호 변경</h2>
-          <form id="passwordForm" class="space-y-4">
+          <form
+            id="passwordForm"
+            class="space-y-4"
+            onsubmit="handlePasswordChange(event)"
+          >
             <div class="space-y-2">
               <label
                 for="currentPassword"
@@ -1179,12 +1363,8 @@
                 type="password"
                 id="newPassword"
                 required
-                minlength="8"
                 class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
               />
-              <p class="text-xs text-gray-500">
-                8자 이상의 비밀번호를 입력해주세요.
-              </p>
             </div>
             <div class="space-y-2">
               <label
@@ -1197,7 +1377,6 @@
                 type="password"
                 id="confirmNewPassword"
                 required
-                minlength="8"
                 class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-colors"
               />
             </div>
@@ -1565,12 +1744,207 @@
       // 사용자 추가 모달 표시
       function showAddUserModal() {
         document.getElementById("addUserModal").classList.remove("hidden");
+        // 기본적으로 단일 사용자 추가 모드로 시작
+        switchToSingleUser();
+        // 학생 테이블 초기화
+        document.getElementById("studentTableBody").innerHTML = "";
+        // 첫 번째 학생 행 추가
+        addStudentRow();
       }
+
+      // 단일 사용자 추가 모드로 전환
+      function switchToSingleUser() {
+        document
+          .getElementById("singleUserBtn")
+          .classList.remove("bg-white", "text-gray-700", "border-gray-300");
+        document
+          .getElementById("singleUserBtn")
+          .classList.add("bg-primary-600", "text-white", "border-transparent");
+
+        document
+          .getElementById("bulkUserBtn")
+          .classList.remove(
+            "bg-primary-600",
+            "text-white",
+            "border-transparent"
+          );
+        document
+          .getElementById("bulkUserBtn")
+          .classList.add("bg-white", "text-gray-700", "border-gray-300");
+
+        document.getElementById("addUserForm").classList.remove("hidden");
+        document.getElementById("bulkAddUserForm").classList.add("hidden");
+      }
+
+      // 대량 사용자 추가 모드로 전환
+      function switchToBulkUser() {
+        document
+          .getElementById("bulkUserBtn")
+          .classList.remove("bg-white", "text-gray-700", "border-gray-300");
+        document
+          .getElementById("bulkUserBtn")
+          .classList.add("bg-primary-600", "text-white", "border-transparent");
+
+        document
+          .getElementById("singleUserBtn")
+          .classList.remove(
+            "bg-primary-600",
+            "text-white",
+            "border-transparent"
+          );
+        document
+          .getElementById("singleUserBtn")
+          .classList.add("bg-white", "text-gray-700", "border-gray-300");
+
+        document.getElementById("addUserForm").classList.add("hidden");
+        document.getElementById("bulkAddUserForm").classList.remove("hidden");
+      }
+
+      // 학생 행 추가
+      function addStudentRow() {
+        const tbody = document.getElementById("studentTableBody");
+        const rowId = Date.now(); // 고유 ID 생성
+
+        const newRow = document.createElement("tr");
+        newRow.id = `student-row-${rowId}`;
+        newRow.className = "hover:bg-gray-50";
+
+        newRow.innerHTML = `
+          <td class="px-3 py-2">
+            <input 
+              type="text" 
+              class="student-id w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              placeholder="0000" 
+              pattern="^\\d{4}$" 
+              required
+            />
+          </td>
+          <td class="px-3 py-2">
+            <input 
+              type="text" 
+              class="student-name w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              placeholder="홍길동" 
+              pattern="^[가-힣]{2,4}$" 
+              required
+            />
+          </td>
+          <td class="px-3 py-2">
+            <input 
+              type="number" 
+              class="student-number w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-primary-500 focus:ring-primary-500"
+              placeholder="1" 
+              min="1" 
+              max="100" 
+              required
+            />
+          </td>
+          <td class="px-3 py-2">
+            <button 
+              type="button" 
+              onclick="removeStudentRow('${rowId}')" 
+              class="text-red-600 hover:text-red-800"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+              </svg>
+            </button>
+          </td>
+        `;
+
+        tbody.appendChild(newRow);
+      }
+
+      // 학생 행 제거
+      function removeStudentRow(rowId) {
+        const row = document.getElementById(`student-row-${rowId}`);
+        if (row) {
+          row.remove();
+
+          // 최소 1개의 행은 유지
+          const tbody = document.getElementById("studentTableBody");
+          if (tbody.children.length === 0) {
+            addStudentRow();
+          }
+        }
+      }
+
+      // 대량 사용자 추가 폼 제출 처리
+      document
+        .getElementById("bulkAddUserForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          try {
+            const grade = parseInt(document.getElementById("bulkGrade").value);
+            const classNumber = parseInt(
+              document.getElementById("bulkClass").value
+            );
+            const commonPassword = document
+              .getElementById("bulkPassword")
+              .value.trim();
+
+            // 학생 데이터 수집
+            const students = [];
+            const rows = document.getElementById("studentTableBody").children;
+
+            for (let i = 0; i < rows.length; i++) {
+              const row = rows[i];
+              const studentId = row.querySelector(".student-id").value.trim();
+              const name = row.querySelector(".student-name").value.trim();
+              const number = parseInt(
+                row.querySelector(".student-number").value
+              );
+
+              students.push({
+                studentId,
+                name,
+                number,
+              });
+            }
+
+            // 서버에 요청
+            const response = await axios.post("/api/admin/bulk-users", {
+              users: students,
+              grade,
+              class: classNumber,
+              commonPassword: commonPassword || undefined,
+            });
+
+            if (response.data.success) {
+              // 결과 표시
+              let resultMessage = `${response.data.results.length}명의 사용자가 추가되었습니다.`;
+
+              if (response.data.errors.length > 0) {
+                resultMessage += `\n\n${response.data.errors.length}명의 사용자는 추가에 실패했습니다:`;
+                response.data.errors.forEach((error) => {
+                  resultMessage += `\n- ${error.name}(${error.studentId}): ${error.error}`;
+                });
+              }
+
+              showResultModal(
+                "사용자 일괄 추가 완료",
+                resultMessage,
+                `공통 비밀번호: ${response.data.initialPassword}`
+              );
+
+              closeAddUserModal();
+              loadUsers();
+            }
+          } catch (error) {
+            console.error("대량 사용자 추가 오류:", error);
+            showResultModal(
+              "사용자 일괄 추가 실패",
+              error.response?.data?.message || "사용자 추가에 실패했습니다."
+            );
+          }
+        });
 
       // 사용자 추가 모달 닫기
       function closeAddUserModal() {
         document.getElementById("addUserModal").classList.add("hidden");
         document.getElementById("addUserForm").reset();
+        document.getElementById("bulkAddUserForm").reset();
+        document.getElementById("studentTableBody").innerHTML = "";
       }
 
       // 사용자 추가 폼 제출 처리
@@ -1580,6 +1954,9 @@
           e.preventDefault();
 
           try {
+            const customPassword = document
+              .getElementById("newPassword")
+              .value.trim();
             const response = await axios.post("/api/admin/users", {
               studentId: document.getElementById("newStudentId").value,
               name: document.getElementById("newName").value,
@@ -1587,6 +1964,7 @@
               class: parseInt(document.getElementById("newClass").value),
               number: parseInt(document.getElementById("newNumber").value),
               isApproved: true,
+              customPassword: customPassword || undefined, // 비밀번호가 입력되지 않았으면 undefined 전송
             });
 
             if (response.data.success) {
@@ -1655,7 +2033,7 @@
               ? "승인 취소"
               : action === "delete"
               ? "삭제"
-              : "비밀번호 초기화"
+              : "비밀번호 초기화 (자동 생성)"
           } 작업을 수행하시겠습니까?`
         );
 
@@ -1685,6 +2063,7 @@
                 await axios.delete(`/api/admin/users/${userId}`);
                 break;
               case "resetPassword":
+                // 일괄 초기화의 경우 자동 생성된 비밀번호만 사용
                 const response = await axios.post("/api/admin/reset-password", {
                   userId,
                 });
@@ -1966,16 +2345,26 @@
       // 비밀번호 초기화 함수 추가
       async function resetPassword(userId) {
         try {
+          const customPassword = prompt(
+            "비밀번호를 직접 지정하려면 입력하세요. 취소하거나 빈 값을 입력하면 자동으로 생성됩니다."
+          );
+
+          if (customPassword === null) return; // 취소 버튼 클릭 시 종료
+
           if (
             !confirm(
-              "이 사용자의 비밀번호를 초기화하시겠습니까?\n8자리 난수로 초기화됩니다."
+              customPassword
+                ? `이 사용자의 비밀번호를 '${customPassword}'로 변경하시겠습니까?`
+                : "이 사용자의 비밀번호를 자동 생성된 값으로 초기화하시겠습니까?"
             )
           )
             return;
 
           const response = await axios.post("/api/admin/reset-password", {
             userId,
+            customPassword: customPassword || undefined, // 빈 문자열이면 undefined 전송
           });
+
           showResultModal(
             "비밀번호 초기화 완료",
             "비밀번호가 초기화되었습니다. 아래 비밀번호를 복사하여 사용자에게 전달하세요.",
@@ -2194,6 +2583,44 @@
       function changePage(delta) {
         historyCurrentPage = Math.max(1, historyCurrentPage + delta);
         loadHistory();
+      }
+
+      // 비밀번호 변경 처리 함수
+      async function handlePasswordChange(e) {
+        e.preventDefault();
+
+        const currentPassword =
+          document.getElementById("currentPassword").value;
+        const newPassword = document.getElementById("newPassword").value;
+        const confirmNewPassword =
+          document.getElementById("confirmNewPassword").value;
+        const errorElement = document.getElementById("passwordError");
+
+        // 새 비밀번호 일치 여부 확인
+        if (newPassword !== confirmNewPassword) {
+          errorElement.textContent = "새 비밀번호가 일치하지 않습니다.";
+          errorElement.classList.remove("hidden");
+          return;
+        }
+
+        try {
+          const response = await axios.post("/api/change-password", {
+            currentPassword,
+            newPassword,
+          });
+
+          alert(
+            response.data.message || "비밀번호가 성공적으로 변경되었습니다."
+          );
+          document.getElementById("passwordForm").reset();
+          showPage("home");
+        } catch (error) {
+          console.error("Password change error:", error);
+          errorElement.textContent =
+            error.response?.data?.message ||
+            "비밀번호 변경 중 오류가 발생했습니다.";
+          errorElement.classList.remove("hidden");
+        }
       }
     </script>
   </body>
